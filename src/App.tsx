@@ -256,6 +256,16 @@ export default function App() {
     }
   };
 
+  const handleDeleteCustomer = async (customerId: string) => {
+    try {
+      await ApiService.deleteCustomer(customerId, settings.adminPin || '');
+      setCustomers(prev => prev.filter(c => c.id !== customerId));
+    } catch (err: any) {
+      console.error('Failed deleting customer:', err);
+      alert('Gagal menghapus customer: ' + err.message);
+    }
+  };
+
   // Handler untuk update order (simpan hasil edit invoice dari LaporanView)
   const handleUpdateOrder = async (updatedOrder: Order) => {
     try {
@@ -374,6 +384,8 @@ export default function App() {
               onAddCustomer={handleAddCustomer}
               onUpdateCustomer={handleUpdateCustomer}
               onViewCustomerOrder={handleSelectOrder}
+              onDeleteCustomer={handleDeleteCustomer}
+              isAdminAuthenticated={isAdminAuthenticated}
               theme={theme}
             />
           )}

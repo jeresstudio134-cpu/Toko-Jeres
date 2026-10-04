@@ -9,6 +9,7 @@ import {
   Download,
   Phone,
   ChevronRight,
+  Trash2,
   X,
 } from 'lucide-react';
 
@@ -18,6 +19,8 @@ interface CustomerViewProps {
   onAddCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onViewCustomerOrder: (order: Order) => void;
+  onDeleteCustomer: (id: string) => void | Promise<void>;
+  isAdminAuthenticated?: boolean;
   theme?: 'light' | 'dark';
 }
 
@@ -27,6 +30,8 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   onAddCustomer,
   onUpdateCustomer,
   onViewCustomerOrder,
+  onDeleteCustomer,
+  isAdminAuthenticated = false,
   theme = 'light',
 }) => {
   const isDark = theme === 'dark';
@@ -90,6 +95,15 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     };
     onUpdateCustomer(updated);
     setSelectedCustomer(updated);
+  };
+
+  const handleDeleteCustomer = async (c: Customer) => {
+    const ok = window.confirm(
+      `Hapus customer "${c.name}"?\n\nRiwayat nota tidak ikut terhapus.`
+    );
+    if (!ok) return;
+    await onDeleteCustomer(c.id);
+    setSelectedCustomer(null);
   };
 
   const handleCreateCustomer = (e: React.FormEvent) => {
@@ -461,6 +475,22 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Hapus customer (khusus admin) */}
+            {isAdminAuthenticated && (
+              <button
+                type="button"
+                onClick={() => handleDeleteCustomer(selectedCustomer)}
+                className={`w-full py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all ${
+                  isDark
+                    ? 'border-red-900/60 text-red-400 hover:bg-red-950/40'
+                    : 'border-red-200 text-red-600 hover:bg-red-50'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Hapus Customer</span>
+              </button>
+            )}
 
             {/* Transaction History of this Customer */}
             <div className={`space-y-2 pt-2 border-t ${isDark ? 'border-neutral-800' : 'border-neutral-100'}`}>
