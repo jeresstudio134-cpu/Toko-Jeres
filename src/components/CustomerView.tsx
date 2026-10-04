@@ -17,9 +17,9 @@ interface CustomerViewProps {
   customers: Customer[];
   orders: Order[];
   onAddCustomer: (customer: Customer) => void;
-  onUpdateCustomer: (customer: Customer) => void;
+  onUpdateCustomer: (customer: Customer) => Promise<string | null>;
   onViewCustomerOrder: (order: Order) => void;
-  onDeleteCustomer: (id: string) => void | Promise<void>;
+  onDeleteCustomer: (id: string) => Promise<string | null>;
   isAdminAuthenticated?: boolean;
   theme?: 'light' | 'dark';
 }
@@ -39,6 +39,13 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   const [sortBy, setSortBy] = useState<'spent' | 'orders' | 'recent'>('spent');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Pesan notifikasi (toast)
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 2500);
+  };
 
   // Form for manual add
   const [newName, setNewName] = useState('');
@@ -87,14 +94,19 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     setEditNotes(c.notes || '');
   };
 
-  const handleSaveNotes = () => {
+  const handleSaveNotes = async () => {
     if (!selectedCustomer) return;
     const updated: Customer = {
       ...selectedCustomer,
       notes: editNotes,
     };
-    onUpdateCustomer(updated);
+    const error = await onUpdateCustomer(updated);
+    if (error) {
+      showToast('error', 'Gagal menyimpan catatan: ' + error);
+      return;
+    }
     setSelectedCustomer(updated);
+    showToast('success', 'Catatan berhasil disimpan');
   };
 
   const handleDeleteCustomer = async (c: Customer) => {
@@ -102,8 +114,13 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
       `Hapus customer "${c.name}"?\n\nRiwayat nota tidak ikut terhapus.`
     );
     if (!ok) return;
-    await onDeleteCustomer(c.id);
+    const error = await onDeleteCustomer(c.id);
+    if (error) {
+      showToast('error', 'Gagal menghapus customer: ' + error);
+      return;
+    }
     setSelectedCustomer(null);
+    showToast('success', `Customer "${c.name}" berhasil dihapus`);
   };
 
   const handleCreateCustomer = (e: React.FormEvent) => {
@@ -633,6 +650,20 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Pesan notifikasi */}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[60] max-w-[90vw] px-4 py-2.5 rounded-xl text-xs font-bold shadow-lg ${
+            toast.type === 'success'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-red-600 text-white'
+          }`}
+        >
+          {toast.text}
         </div>
       )}
     </div>
