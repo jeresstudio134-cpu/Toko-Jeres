@@ -247,22 +247,25 @@ export default function App() {
     }
   };
 
-  const handleUpdateCustomer = async (updatedCust: Customer) => {
+  const handleUpdateCustomer = async (updatedCust: Customer): Promise<string | null> => {
     try {
       const updated = await ApiService.updateCustomer(updatedCust.id, updatedCust);
       setCustomers(prev => prev.map(c => (c.id === updated.id ? updated : c)));
-    } catch (err) {
+      return null;
+    } catch (err: any) {
       console.error('Failed updating customer:', err);
+      return err?.message || 'Terjadi kesalahan';
     }
   };
 
-  const handleDeleteCustomer = async (customerId: string) => {
+  const handleDeleteCustomer = async (customerId: string): Promise<string | null> => {
     try {
       await ApiService.deleteCustomer(customerId, settings.adminPin || '');
       setCustomers(prev => prev.filter(c => c.id !== customerId));
+      return null;
     } catch (err: any) {
       console.error('Failed deleting customer:', err);
-      alert('Gagal menghapus customer: ' + err.message);
+      return err?.message || 'Terjadi kesalahan';
     }
   };
 
