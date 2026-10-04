@@ -464,33 +464,36 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                   }`}
                   rows={2}
                 />
-                <button
-                  type="button"
-                  onClick={handleSaveNotes}
-                  className={`px-3 py-1 font-bold rounded-lg text-[11px] ${
-                    isDark ? 'bg-neutral-200 text-neutral-950' : 'bg-neutral-900 text-white'
-                  }`}
-                >
-                  Simpan Catatan
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveNotes}
+                    className={`px-3 py-1 font-bold rounded-lg text-[11px] ${
+                      isDark ? 'bg-neutral-200 text-neutral-950' : 'bg-neutral-900 text-white'
+                    }`}
+                  >
+                    Simpan Catatan
+                  </button>
+
+                  {isAdminAuthenticated && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCustomer(selectedCustomer)}
+                      className={`px-3 py-1 font-bold rounded-lg text-[11px] border inline-flex items-center gap-1 active:scale-95 transition-all ${
+                        isDark
+                          ? 'border-red-900/60 text-red-400 hover:bg-red-950/40'
+                          : 'border-red-200 text-red-600 hover:bg-red-50'
+                      }`}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Hapus Customer</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Hapus customer (khusus admin) */}
-            {isAdminAuthenticated && (
-              <button
-                type="button"
-                onClick={() => handleDeleteCustomer(selectedCustomer)}
-                className={`w-full py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all ${
-                  isDark
-                    ? 'border-red-900/60 text-red-400 hover:bg-red-950/40'
-                    : 'border-red-200 text-red-600 hover:bg-red-50'
-                }`}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Hapus Customer</span>
-              </button>
-            )}
+
 
             {/* Transaction History of this Customer */}
             <div className={`space-y-2 pt-2 border-t ${isDark ? 'border-neutral-800' : 'border-neutral-100'}`}>
