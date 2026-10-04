@@ -79,28 +79,22 @@ function parseCloudinaryUrl(rawUrl?: string) {
 // ======================================================
 
 app.get('/api/health', async (_req, res) => {
-  try {
-    await serverDb.getSettings();
+  const s = await serverDb.status();
+  res.status(s.connected ? 200 : 503).json({
+    status: s.connected ? 'ok' : 'neon-not-connected',
+    ...s,
+    timestamp: new Date().toISOString(),
+  });
+});
 
-    res.json({
-      status: 'ok',
-      database: 'neon-postgresql',
-      orm: 'drizzle',
-      server: 'express',
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error: any) {
-    console.error('[HEALTH]', error);
-
-    res.status(500).json({
-      status: 'error',
-      database: 'neon-postgresql',
-      error:
-        process.env.NODE_ENV === 'development'
-          ? error.message
-          : 'Database connection failed',
-    });
+// Di Vercel: kalau Neon tidak terhubung, tampilkan error, jangan pakai data lokal
+app.use('/api', async (req, res, next) => {
+  if (req.path === '/health' || !process.env.VERCEL) return next();
+  const s = await serverDb.status();
+  if (!s.connected) {
+    return res.status(503).json({ error: `Neon tidak terhubung: ${s.error}` });
   }
+  next();
 });
 
 // ======================================================

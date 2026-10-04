@@ -317,6 +317,7 @@ interface DatabaseSchema {
 
 export class ServerDatabase {
   private ready: Promise<boolean> | null = null;
+  private lastError: string | null = null;
   private localData: DatabaseSchema;
 
   constructor() {
@@ -371,18 +372,33 @@ export class ServerDatabase {
 
   private async db() {
     const sql = getSql();
-    if (!sql) return null;
+    if (!sql) {
+      this.lastError = 'DATABASE_URL belum diset';
+      return null;
+    }
 
     if (!this.ready) {
       this.ready = this.setup().then(() => true).catch(err => {
-        console.warn('Neon database setup error, using local fallback:', err.message);
+        this.lastError = err.message;
+        this.ready = null; // coba lagi di request berikutnya
+        console.warn('Neon database setup error:', err.message);
         return false;
       });
     }
 
     const ok = await this.ready;
     if (!ok) return null;
+    this.lastError = null;
     return sql;
+  }
+
+  public async status() {
+    const sql = await this.db();
+    return {
+      connected: !!sql,
+      hasDatabaseUrl: !!process.env.DATABASE_URL?.trim(),
+      error: sql ? null : this.lastError,
+    };
   }
 
   // -------------------------
