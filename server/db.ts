@@ -1,66 +1,67 @@
-import fs from 'fs';
-import path from 'path';
 import { neon } from '@neondatabase/serverless';
+import { drizzle, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
+import { eq, asc, desc, sql } from 'drizzle-orm';
+import * as t from './schema.ts';
 import type { Product, Customer, Order, StoreSettings } from '../src/types/index.ts';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'database.json');
+// ======================================================
+// KONEKSI NEON (Drizzle ORM) - hanya dari DATABASE_URL
+// ======================================================
+type Db = NeonHttpDatabase;
+let cached: Db | null = null;
 
-const getSql = () => {
+const getDb = (): Db | null => {
   const url = process.env.DATABASE_URL;
   if (!url || !url.trim()) return null;
-  try {
-    return neon(url);
-  } catch (e) {
-    console.warn('Neon init error:', e);
-    return null;
-  }
+  if (!cached) cached = drizzle(neon(url.trim()));
+  return cached;
 };
 
-// Neon mengembalikan NUMERIC sebagai teks dan waktu sebagai Date, jadi diubah di sini
+// ======================================================
+// HELPER KONVERSI (NUMERIC dari Neon = teks, waktu = Date)
+// ======================================================
 const num = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 const numOrUndef = (v: any) => (v === null || v === undefined ? undefined : Number(v));
+const str = (v: number | null | undefined) => (v === null || v === undefined ? null : String(v));
 const iso = (v: any) => (v ? new Date(v).toISOString() : new Date().toISOString());
+const dt = (v: any) => (v ? new Date(v) : new Date());
 
 const imagesOf = (p: Product): string[] =>
   (p.images && p.images.length ? p.images : p.imageUrl ? [p.imageUrl] : []).filter(Boolean);
 
-const toProduct = (r: any): Product =>
-  ({
-    id: r.id,
-    name: r.name,
-    category: r.category,
-    price: num(r.price),
-    costPrice: num(r.cost_price),
-    stock: num(r.stock),
-    unit: r.unit || 'pcs',
-    imageUrl: r.image_url || undefined,
-    images:
-      Array.isArray(r.images) && r.images.length ? r.images : r.image_url ? [r.image_url] : [],
-    sku: r.sku || undefined,
-    description: r.description || undefined,
-    isActive: r.is_active !== false,
-  }) as Product;
-
-const toCustomer = (r: any): Customer =>
-  ({
-    id: r.id,
-    name: r.name,
-    phone: r.phone || '',
-    email: r.email || undefined,
-    address: r.address || undefined,
-    totalSpent: num(r.total_spent),
-    ordersCount: num(r.orders_count),
-    firstVisit: iso(r.first_visit),
-    lastVisit: iso(r.last_visit),
-    notes: r.notes || undefined,
-  }) as Customer;
-
-const toItem = (r: any) => ({
-  productId: r.product_id,
-  productName: r.product_name,
+const toProduct = (r: typeof t.products.$inferSelect): Product => ({
+  id: r.id,
+  name: r.name,
+  category: r.category,
   price: num(r.price),
-  costPrice: numOrUndef(r.cost_price),
+  costPrice: num(r.costPrice),
+  stock: num(r.stock),
+  unit: r.unit || 'pcs',
+  imageUrl: r.imageUrl || undefined,
+  images: Array.isArray(r.images) && r.images.length ? r.images : r.imageUrl ? [r.imageUrl] : [],
+  sku: r.sku || undefined,
+  description: r.description || undefined,
+  isActive: r.isActive !== false,
+});
+
+const toCustomer = (r: typeof t.customers.$inferSelect): Customer => ({
+  id: r.id,
+  name: r.name,
+  phone: r.phone || '',
+  email: r.email || undefined,
+  address: r.address || undefined,
+  totalSpent: num(r.totalSpent),
+  ordersCount: num(r.ordersCount),
+  firstVisit: iso(r.firstVisit),
+  lastVisit: iso(r.lastVisit),
+  notes: r.notes || undefined,
+});
+
+const toItem = (r: typeof t.orderItems.$inferSelect) => ({
+  productId: r.productId || '',
+  productName: r.productName,
+  price: num(r.price),
+  costPrice: numOrUndef(r.costPrice),
   quantity: num(r.quantity),
   length: numOrUndef(r.length),
   width: numOrUndef(r.width),
@@ -69,46 +70,127 @@ const toItem = (r: any) => ({
   note: r.note || undefined,
 });
 
-const toOrder = (r: any, items: any[]): Order =>
-  ({
-    id: r.id,
-    invoiceNumber: r.invoice_number,
-    customerId: r.customer_id || undefined,
-    customerName: r.customer_name,
-    customerPhone: r.customer_phone || undefined,
-    items: items.map(toItem),
-    subtotal: num(r.subtotal),
-    discount: num(r.discount),
-    tax: num(r.tax),
-    total: num(r.total),
-    paymentMethod: r.payment_method,
-    paymentStatus: r.payment_status,
-    cashGiven: numOrUndef(r.cash_given),
-    cashChange: numOrUndef(r.cash_change),
-    createdAt: iso(r.created_at),
-    notes: r.notes || undefined,
-  }) as Order;
+const toOrder = (r: typeof t.orders.$inferSelect, items: (typeof t.orderItems.$inferSelect)[]): Order => ({
+  id: r.id,
+  invoiceNumber: r.invoiceNumber,
+  customerId: r.customerId || undefined,
+  customerName: r.customerName,
+  customerPhone: r.customerPhone || undefined,
+  items: items.map(toItem),
+  subtotal: num(r.subtotal),
+  discount: num(r.discount),
+  tax: num(r.tax),
+  total: num(r.total),
+  paymentMethod: r.paymentMethod as Order['paymentMethod'],
+  paymentStatus: (r.paymentStatus || 'lunas') as Order['paymentStatus'],
+  cashGiven: numOrUndef(r.cashGiven),
+  cashChange: numOrUndef(r.cashChange),
+  createdAt: iso(r.createdAt),
+  notes: r.notes || undefined,
+});
 
-const toSettings = (r: any): StoreSettings =>
-  ({
-    storeName: r.store_name,
-    tagline: r.tagline || '',
-    address: r.address || '',
-    phone: r.phone || '',
-    receiptFooter: r.receipt_footer || '',
-    paperWidth: r.paper_width || '58mm',
-    taxPercent: num(r.tax_percent),
-    enableTax: !!r.enable_tax,
-    currency: r.currency || 'IDR',
-    qrisCodeText: r.qris_code_text || '',
-    qrisImageUrl: r.qris_image_url || '',
-    cloudinaryCloudName: r.cloudinary_cloud_name || '',
-    cloudinaryUploadPreset: r.cloudinary_upload_preset || '',
-    theme: r.theme || 'light',
-    adminPin: r.admin_pin || '1234',
-    neonDatabaseUrl: '',
-  }) as StoreSettings;
+const toSettings = (r: typeof t.storeSettings.$inferSelect): StoreSettings => ({
+  storeName: r.storeName,
+  tagline: r.tagline || '',
+  address: r.address || '',
+  phone: r.phone || '',
+  receiptFooter: r.receiptFooter || '',
+  paperWidth: (r.paperWidth || '58mm') as StoreSettings['paperWidth'],
+  taxPercent: num(r.taxPercent),
+  enableTax: !!r.enableTax,
+  currency: r.currency || 'IDR',
+  qrisCodeText: r.qrisCodeText || '',
+  qrisImageUrl: r.qrisImageUrl || '',
+  cloudinaryCloudName: r.cloudinaryCloudName || '',
+  cloudinaryUploadPreset: r.cloudinaryUploadPreset || '',
+  theme: (r.theme || 'light') as StoreSettings['theme'],
+  adminPin: r.adminPin || '1234',
+  neonDatabaseUrl: '',
+});
 
+// Pembuat nilai untuk INSERT / UPDATE
+const productValues = (p: Product) => {
+  const imgs = imagesOf(p);
+  return {
+    name: p.name,
+    category: p.category,
+    price: String(p.price),
+    costPrice: String(p.costPrice || 0),
+    stock: p.stock,
+    unit: p.unit || 'pcs',
+    imageUrl: imgs[0] ?? null,
+    images: imgs,
+    sku: p.sku ?? null,
+    description: p.description ?? null,
+    isActive: p.isActive !== false,
+  };
+};
+
+const customerValues = (c: Customer) => ({
+  name: c.name,
+  phone: c.phone || '',
+  email: c.email ?? null,
+  address: c.address ?? null,
+  totalSpent: String(c.totalSpent || 0),
+  ordersCount: c.ordersCount || 0,
+  firstVisit: dt(c.firstVisit),
+  lastVisit: dt(c.lastVisit),
+  notes: c.notes ?? null,
+});
+
+const orderValues = (o: Order) => ({
+  invoiceNumber: o.invoiceNumber,
+  customerId: o.customerId ?? null,
+  customerName: o.customerName,
+  customerPhone: o.customerPhone ?? null,
+  subtotal: String(o.subtotal),
+  discount: String(o.discount || 0),
+  tax: String(o.tax || 0),
+  total: String(o.total),
+  paymentMethod: o.paymentMethod,
+  paymentStatus: o.paymentStatus || 'lunas',
+  cashGiven: str(o.cashGiven),
+  cashChange: str(o.cashChange),
+  notes: o.notes ?? null,
+  createdAt: dt(o.createdAt),
+});
+
+const itemValues = (orderId: string, it: any, position: number) => ({
+  orderId,
+  position,
+  productId: it.productId ?? null,
+  productName: it.productName,
+  price: String(it.price),
+  costPrice: str(it.costPrice),
+  quantity: String(it.quantity),
+  length: str(it.length),
+  width: str(it.width),
+  area: str(it.area),
+  subtotal: String(it.subtotal),
+  note: it.note ?? null,
+});
+
+const settingsValues = (s: StoreSettings) => ({
+  storeName: s.storeName,
+  tagline: s.tagline || '',
+  address: s.address || '',
+  phone: s.phone || '',
+  receiptFooter: s.receiptFooter || '',
+  paperWidth: s.paperWidth || '58mm',
+  taxPercent: String(s.taxPercent || 0),
+  enableTax: !!s.enableTax,
+  currency: s.currency || 'IDR',
+  qrisCodeText: s.qrisCodeText || '',
+  qrisImageUrl: s.qrisImageUrl || '',
+  cloudinaryCloudName: s.cloudinaryCloudName || '',
+  cloudinaryUploadPreset: s.cloudinaryUploadPreset || '',
+  theme: s.theme || 'light',
+  adminPin: s.adminPin || '1234',
+});
+
+// ======================================================
+// DATA AWAL (hanya dipakai sekali kalau database masih kosong)
+// ======================================================
 const DEFAULT_SETTINGS: StoreSettings = {
   storeName: 'JERES STUDIO',
   tagline: 'Toko & Kasir HP',
@@ -129,287 +211,91 @@ const DEFAULT_SETTINGS: StoreSettings = {
 };
 
 const DEFAULT_PRODUCTS: Product[] = [
-  {
-    id: 'prod-1',
-    name: 'Kopi Susu Aren Special',
-    category: 'Minuman',
-    price: 22000,
-    costPrice: 9500,
-    stock: 45,
-    unit: 'cup',
-    sku: 'DRK-001',
-    description: 'Espresso double shot, susu segar, gula aren organik lokal',
-    isActive: true,
-  },
-  {
-    id: 'prod-2',
-    name: 'Matcha Latte Uji',
-    category: 'Minuman',
-    price: 28000,
-    costPrice: 12000,
-    stock: 32,
-    unit: 'cup',
-    sku: 'DRK-002',
-    description: 'Matcha murni dari Uji Jepang dengan susu oat pilihan',
-    isActive: true,
-  },
-  {
-    id: 'prod-3',
-    name: 'Cold Brew Citrus Black',
-    category: 'Minuman',
-    price: 25000,
-    costPrice: 10000,
-    stock: 20,
-    unit: 'botol',
-    sku: 'DRK-003',
-    description: 'Steeped 16 jam dengan hint citrus segar',
-    isActive: true,
-  },
-  {
-    id: 'prod-4',
-    name: 'Almond Butter Croissant',
-    category: 'Pastry',
-    price: 26000,
-    costPrice: 13000,
-    stock: 18,
-    unit: 'pcs',
-    sku: 'PST-001',
-    description: 'Flaky French butter pastry dengan roasted almond flakes',
-    isActive: true,
-  },
-  {
-    id: 'prod-5',
-    name: 'Artisan Cinnamon Roll',
-    category: 'Pastry',
-    price: 24000,
-    costPrice: 11000,
-    stock: 15,
-    unit: 'pcs',
-    sku: 'PST-002',
-    description: 'Cream cheese glaze lembut dengan kayu manis ceylon wangi',
-    isActive: true,
-  },
-  {
-    id: 'prod-6',
-    name: 'Sourdough Toast & Kaya',
-    category: 'Makanan',
-    price: 28000,
-    costPrice: 12500,
-    stock: 24,
-    unit: 'porsi',
-    sku: 'FOD-001',
-    description: 'Roti sourdough panggang dengan selai srikaya pandan & butter',
-    isActive: true,
-  },
-  {
-    id: 'prod-7',
-    name: 'Linen Tote Bag Natural',
-    category: 'Merchandise',
-    price: 75000,
-    costPrice: 38000,
-    stock: 12,
-    unit: 'pcs',
-    sku: 'MCH-001',
-    description: 'Tas kanvas katun organik 100% minimalis ramah lingkungan',
-    isActive: true,
-  },
-  {
-    id: 'prod-8',
-    name: 'Ceramic Mug Off-White 250ml',
-    category: 'Merchandise',
-    price: 65000,
-    costPrice: 30000,
-    stock: 10,
-    unit: 'pcs',
-    sku: 'MCH-002',
-    description: 'Cangkir keramik handmade matte texture',
-    isActive: true,
-  },
+  { id: 'prod-1', name: 'Kopi Susu Aren Special', category: 'Minuman', price: 22000, costPrice: 9500, stock: 45, unit: 'cup', sku: 'DRK-001', description: 'Espresso double shot, susu segar, gula aren organik lokal', isActive: true },
+  { id: 'prod-2', name: 'Matcha Latte Uji', category: 'Minuman', price: 28000, costPrice: 12000, stock: 32, unit: 'cup', sku: 'DRK-002', description: 'Matcha murni dari Uji Jepang dengan susu oat pilihan', isActive: true },
+  { id: 'prod-3', name: 'Cold Brew Citrus Black', category: 'Minuman', price: 25000, costPrice: 10000, stock: 20, unit: 'botol', sku: 'DRK-003', description: 'Steeped 16 jam dengan hint citrus segar', isActive: true },
+  { id: 'prod-4', name: 'Almond Butter Croissant', category: 'Pastry', price: 26000, costPrice: 13000, stock: 18, unit: 'pcs', sku: 'PST-001', description: 'Flaky French butter pastry dengan roasted almond flakes', isActive: true },
+  { id: 'prod-5', name: 'Artisan Cinnamon Roll', category: 'Pastry', price: 24000, costPrice: 11000, stock: 15, unit: 'pcs', sku: 'PST-002', description: 'Cream cheese glaze lembut dengan kayu manis ceylon wangi', isActive: true },
+  { id: 'prod-6', name: 'Sourdough Toast & Kaya', category: 'Makanan', price: 28000, costPrice: 12500, stock: 24, unit: 'porsi', sku: 'FOD-001', description: 'Roti sourdough panggang dengan selai srikaya pandan & butter', isActive: true },
+  { id: 'prod-7', name: 'Linen Tote Bag Natural', category: 'Merchandise', price: 75000, costPrice: 38000, stock: 12, unit: 'pcs', sku: 'MCH-001', description: 'Tas kanvas katun organik 100% minimalis ramah lingkungan', isActive: true },
+  { id: 'prod-8', name: 'Ceramic Mug Off-White 250ml', category: 'Merchandise', price: 65000, costPrice: 30000, stock: 10, unit: 'pcs', sku: 'MCH-002', description: 'Cangkir keramik handmade matte texture', isActive: true },
 ];
 
 const DEFAULT_CUSTOMERS: Customer[] = [
-  {
-    id: 'cust-1',
-    name: 'Budi Santoso',
-    phone: '081234567890',
-    email: 'budi.santoso@email.com',
-    address: 'Kebayoran Baru, Jakarta Selatan',
-    totalSpent: 188000,
-    ordersCount: 4,
-    firstVisit: new Date(Date.now() - 14 * 86400000).toISOString(),
-    lastVisit: new Date(Date.now() - 1 * 86400000).toISOString(),
-    notes: 'Suka kopi less sugar, pelanggan tetap',
-  },
-  {
-    id: 'cust-2',
-    name: 'Siti Rahma',
-    phone: '085712345678',
-    email: 'siti.rahma@email.com',
-    address: 'Tebet Barat, Jakarta',
-    totalSpent: 124000,
-    ordersCount: 2,
-    firstVisit: new Date(Date.now() - 8 * 86400000).toISOString(),
-    lastVisit: new Date(Date.now() - 2 * 86400000).toISOString(),
-    notes: 'Favorit: Matcha Latte Uji',
-  },
-  {
-    id: 'cust-3',
-    name: 'Dimas Wicaksono',
-    phone: '081899887766',
-    email: 'dimas.w@email.com',
-    totalSpent: 75000,
-    ordersCount: 1,
-    firstVisit: new Date(Date.now() - 3 * 86400000).toISOString(),
-    lastVisit: new Date(Date.now() - 3 * 86400000).toISOString(),
-    notes: 'Beli tote bag merchandise',
-  },
+  { id: 'cust-1', name: 'Budi Santoso', phone: '081234567890', email: 'budi.santoso@email.com', address: 'Kebayoran Baru, Jakarta Selatan', totalSpent: 188000, ordersCount: 4, firstVisit: new Date(Date.now() - 14 * 86400000).toISOString(), lastVisit: new Date(Date.now() - 1 * 86400000).toISOString(), notes: 'Suka kopi less sugar, pelanggan tetap' },
+  { id: 'cust-2', name: 'Siti Rahma', phone: '085712345678', email: 'siti.rahma@email.com', address: 'Tebet Barat, Jakarta', totalSpent: 124000, ordersCount: 2, firstVisit: new Date(Date.now() - 8 * 86400000).toISOString(), lastVisit: new Date(Date.now() - 2 * 86400000).toISOString(), notes: 'Favorit: Matcha Latte Uji' },
+  { id: 'cust-3', name: 'Dimas Wicaksono', phone: '081899887766', email: 'dimas.w@email.com', totalSpent: 75000, ordersCount: 1, firstVisit: new Date(Date.now() - 3 * 86400000).toISOString(), lastVisit: new Date(Date.now() - 3 * 86400000).toISOString(), notes: 'Beli tote bag merchandise' },
 ];
 
 const DEFAULT_ORDERS: Order[] = [
   {
-    id: 'ord-101',
-    invoiceNumber: 'INV-20260928-001',
-    customerId: 'cust-1',
-    customerName: 'Budi Santoso',
-    customerPhone: '081234567890',
+    id: 'ord-101', invoiceNumber: 'INV-20260928-001', customerId: 'cust-1', customerName: 'Budi Santoso', customerPhone: '081234567890',
     items: [
       { productId: 'prod-1', productName: 'Kopi Susu Aren Special', price: 22000, costPrice: 9500, quantity: 2, subtotal: 44000 },
       { productId: 'prod-4', productName: 'Almond Butter Croissant', price: 26000, costPrice: 13000, quantity: 1, subtotal: 26000 },
     ],
-    subtotal: 70000,
-    discount: 0,
-    tax: 0,
-    total: 70000,
-    paymentMethod: 'qris',
-    paymentStatus: 'lunas',
-    createdAt: new Date(Date.now() - 2 * 86400000).toISOString(),
-    notes: 'Meja 03',
+    subtotal: 70000, discount: 0, tax: 0, total: 70000, paymentMethod: 'qris', paymentStatus: 'lunas',
+    createdAt: new Date(Date.now() - 2 * 86400000).toISOString(), notes: 'Meja 03',
   },
   {
-    id: 'ord-102',
-    invoiceNumber: 'INV-20260929-002',
-    customerId: 'cust-2',
-    customerName: 'Siti Rahma',
-    customerPhone: '085712345678',
+    id: 'ord-102', invoiceNumber: 'INV-20260929-002', customerId: 'cust-2', customerName: 'Siti Rahma', customerPhone: '085712345678',
     items: [
       { productId: 'prod-2', productName: 'Matcha Latte Uji', price: 28000, costPrice: 12000, quantity: 2, subtotal: 56000 },
       { productId: 'prod-5', productName: 'Artisan Cinnamon Roll', price: 24000, costPrice: 11000, quantity: 1, subtotal: 24000 },
     ],
-    subtotal: 80000,
-    discount: 5000,
-    tax: 0,
-    total: 75000,
-    paymentMethod: 'tunai',
-    paymentStatus: 'lunas',
-    cashGiven: 100000,
-    cashChange: 25000,
-    createdAt: new Date(Date.now() - 1 * 86400000).toISOString(),
-    notes: 'Takeaway',
+    subtotal: 80000, discount: 5000, tax: 0, total: 75000, paymentMethod: 'tunai', paymentStatus: 'lunas',
+    cashGiven: 100000, cashChange: 25000, createdAt: new Date(Date.now() - 1 * 86400000).toISOString(), notes: 'Takeaway',
   },
 ];
 
-interface DatabaseSchema {
-  settings: StoreSettings;
-  products: Product[];
-  customers: Customer[];
-  orders: Order[];
-}
-
+// ======================================================
+// DATABASE
+// ======================================================
 export class ServerDatabase {
   private ready: Promise<boolean> | null = null;
   private lastError: string | null = null;
-  private localData: DatabaseSchema;
 
-  constructor() {
-    this.localData = this.loadLocalData();
-  }
-
-  private ensureDataDir(): void {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-    } catch {
-      // Ignore if read-only filesystem
-    }
-  }
-
-  private loadLocalData(): DatabaseSchema {
-    try {
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        return {
-          settings: { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) },
-          products: parsed.products && parsed.products.length > 0 ? parsed.products : DEFAULT_PRODUCTS,
-          customers: parsed.customers && parsed.customers.length > 0 ? parsed.customers : DEFAULT_CUSTOMERS,
-          orders: parsed.orders && parsed.orders.length > 0 ? parsed.orders : DEFAULT_ORDERS,
-        };
-      }
-    } catch (e) {
-      console.warn('Failed reading local database file, using defaults:', e);
-    }
-
-    const initial: DatabaseSchema = {
-      settings: DEFAULT_SETTINGS,
-      products: DEFAULT_PRODUCTS,
-      customers: DEFAULT_CUSTOMERS,
-      orders: DEFAULT_ORDERS,
-    };
-    this.saveLocalData(initial);
-    return initial;
-  }
-
-  private saveLocalData(data?: DatabaseSchema): void {
-    const toSave = data || this.localData;
-    try {
-      this.ensureDataDir();
-      fs.writeFileSync(DB_FILE, JSON.stringify(toSave, null, 2), 'utf-8');
-    } catch {
-      // Ignore write errors in read-only environment
-    }
-  }
-
-  private async db() {
-    const sql = getSql();
-    if (!sql) {
+  /** Ambil koneksi Neon. Kalau gagal, lempar error yang jelas (tanpa data palsu). */
+  private async db(): Promise<Db> {
+    const db = getDb();
+    if (!db) {
       this.lastError = 'DATABASE_URL belum diset';
-      return null;
+      throw new Error(this.lastError);
     }
-
     if (!this.ready) {
-      this.ready = this.setup().then(() => true).catch(err => {
-        this.lastError = err.message;
-        this.ready = null; // coba lagi di request berikutnya
-        console.warn('Neon database setup error:', err.message);
-        return false;
-      });
+      this.ready = this.setup(db)
+        .then(() => true)
+        .catch(err => {
+          this.lastError = err.message;
+          this.ready = null; // coba lagi di request berikutnya
+          console.warn('Neon database setup error:', err.message);
+          throw err;
+        });
     }
-
-    const ok = await this.ready;
-    if (!ok) return null;
+    await this.ready;
     this.lastError = null;
-    return sql;
+    return db;
   }
 
   public async status() {
-    const sql = await this.db();
-    return {
-      connected: !!sql,
-      hasDatabaseUrl: !!process.env.DATABASE_URL?.trim(),
-      error: sql ? null : this.lastError,
-    };
+    try {
+      await this.db();
+      return { connected: true, hasDatabaseUrl: true, error: null as string | null };
+    } catch (e: any) {
+      return {
+        connected: false,
+        hasDatabaseUrl: !!process.env.DATABASE_URL?.trim(),
+        error: this.lastError ?? e.message,
+      };
+    }
   }
 
   // -------------------------
-  // Buat tabel + pindahkan data lama
+  // Buat tabel kalau belum ada (aman dijalankan berulang)
   // -------------------------
-  private async setup(): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-
+  private async setup(db: Db): Promise<void> {
     await Promise.all([
-      sql`CREATE TABLE IF NOT EXISTS store_settings (
+      db.execute(sql`CREATE TABLE IF NOT EXISTS store_settings (
         id INT PRIMARY KEY,
         store_name VARCHAR(255) NOT NULL,
         tagline VARCHAR(255),
@@ -426,8 +312,8 @@ export class ServerDatabase {
         cloudinary_upload_preset VARCHAR(255),
         theme VARCHAR(10) DEFAULT 'light',
         admin_pin VARCHAR(20) DEFAULT '1234'
-      )`,
-      sql`CREATE TABLE IF NOT EXISTS products (
+      )`),
+      db.execute(sql`CREATE TABLE IF NOT EXISTS products (
         id VARCHAR(64) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         category VARCHAR(100) NOT NULL,
@@ -440,8 +326,8 @@ export class ServerDatabase {
         description TEXT,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )`,
-      sql`CREATE TABLE IF NOT EXISTS customers (
+      )`),
+      db.execute(sql`CREATE TABLE IF NOT EXISTS customers (
         id VARCHAR(64) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         phone VARCHAR(50),
@@ -452,8 +338,8 @@ export class ServerDatabase {
         first_visit TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         last_visit TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         notes TEXT
-      )`,
-      sql`CREATE TABLE IF NOT EXISTS orders (
+      )`),
+      db.execute(sql`CREATE TABLE IF NOT EXISTS orders (
         id VARCHAR(64) PRIMARY KEY,
         invoice_number VARCHAR(100) UNIQUE NOT NULL,
         customer_id VARCHAR(64),
@@ -469,10 +355,10 @@ export class ServerDatabase {
         cash_change NUMERIC(12, 2),
         notes TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )`,
+      )`),
     ]);
 
-    await sql`CREATE TABLE IF NOT EXISTS order_items (
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS order_items (
       id BIGSERIAL PRIMARY KEY,
       order_id VARCHAR(64) NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
       position INT NOT NULL DEFAULT 0,
@@ -486,145 +372,52 @@ export class ServerDatabase {
       area NUMERIC(12, 3),
       subtotal NUMERIC(14, 2) NOT NULL,
       note TEXT
-    )`;
+    )`);
 
-    // Kolom urutan (tabel hasil Sinkronkan lama tidak punya)
     await Promise.all([
-      sql`ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS qris_image_url TEXT`,
-      sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS seq BIGSERIAL`,
-      sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`,
-      sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS seq BIGSERIAL`,
-      sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS seq BIGSERIAL`,
-      sql`CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)`,
+      db.execute(sql`ALTER TABLE store_settings ADD COLUMN IF NOT EXISTS qris_image_url TEXT`),
+      db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS seq BIGSERIAL`),
+      db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb`),
+      db.execute(sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS seq BIGSERIAL`),
+      db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS seq BIGSERIAL`),
+      db.execute(sql`CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)`),
     ]);
 
-    const has = await sql`SELECT 1 FROM store_settings WHERE id = 1`;
+    // Isi data contoh hanya kalau database benar-benar baru
+    const has = await db.select({ id: t.storeSettings.id }).from(t.storeSettings).where(eq(t.storeSettings.id, 1));
     if (has.length > 0) return;
 
-    // Pertama kali: pindahkan dari tabel app_* kalau ada, kalau tidak pakai data contoh
-    let settings: StoreSettings = DEFAULT_SETTINGS;
-    let prods: Product[] = DEFAULT_PRODUCTS;
-    let custs: Customer[] = DEFAULT_CUSTOMERS;
-    let ords: Order[] = DEFAULT_ORDERS;
-
-    const legacy = await sql`SELECT to_regclass('public.app_settings') AS t`;
-    if (legacy[0]?.t) {
-      const [s, p, c, o] = await Promise.all([
-        sql`SELECT data FROM app_settings WHERE id = 1`,
-        sql`SELECT data FROM app_products ORDER BY seq ASC`,
-        sql`SELECT data FROM app_customers ORDER BY seq ASC`,
-        sql`SELECT data FROM app_orders ORDER BY seq ASC`,
-      ]);
-      if (s[0]) {
-        settings = { ...DEFAULT_SETTINGS, ...(s[0].data as object) } as StoreSettings;
-        prods = p.map(x => x.data as Product);
-        custs = c.map(x => x.data as Customer);
-        ords = o.map(x => x.data as Order);
-      }
-    }
-
-    await this.saveSettings(settings);
-    for (const p of prods) await this.insertProduct(p);
-    for (const c of custs) await this.insertCustomer(c);
-    for (const o of ords) await this.insertOrder(o);
+    await this.saveSettings(db, DEFAULT_SETTINGS);
+    for (const p of DEFAULT_PRODUCTS) await this.insertProduct(db, p);
+    for (const c of DEFAULT_CUSTOMERS) await this.insertCustomer(db, c);
+    for (const o of DEFAULT_ORDERS) await this.insertOrder(db, o);
   }
 
   // -------------------------
   // Helper tulis data
   // -------------------------
-  private async saveSettings(s: StoreSettings): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-    await sql`INSERT INTO store_settings
-      (id, store_name, tagline, address, phone, receipt_footer, paper_width, tax_percent, enable_tax,
-       currency, qris_code_text, qris_image_url, cloudinary_cloud_name, cloudinary_upload_preset, theme, admin_pin)
-      VALUES (1, ${s.storeName}, ${s.tagline || ''}, ${s.address || ''}, ${s.phone || ''}, ${s.receiptFooter || ''},
-       ${s.paperWidth || '58mm'}, ${s.taxPercent || 0}, ${!!s.enableTax}, ${s.currency || 'IDR'},
-       ${s.qrisCodeText || ''}, ${s.qrisImageUrl || ''}, ${s.cloudinaryCloudName || ''}, ${s.cloudinaryUploadPreset || ''},
-       ${s.theme || 'light'}, ${s.adminPin || '1234'})
-      ON CONFLICT (id) DO UPDATE SET
-        store_name = EXCLUDED.store_name,
-        tagline = EXCLUDED.tagline,
-        address = EXCLUDED.address,
-        phone = EXCLUDED.phone,
-        receipt_footer = EXCLUDED.receipt_footer,
-        paper_width = EXCLUDED.paper_width,
-        tax_percent = EXCLUDED.tax_percent,
-        enable_tax = EXCLUDED.enable_tax,
-        currency = EXCLUDED.currency,
-        qris_code_text = EXCLUDED.qris_code_text,
-        qris_image_url = EXCLUDED.qris_image_url,
-        cloudinary_cloud_name = EXCLUDED.cloudinary_cloud_name,
-        cloudinary_upload_preset = EXCLUDED.cloudinary_upload_preset,
-        theme = EXCLUDED.theme,
-        admin_pin = EXCLUDED.admin_pin`;
+  private async saveSettings(db: Db, s: StoreSettings): Promise<void> {
+    const v = settingsValues(s);
+    await db.insert(t.storeSettings).values({ id: 1, ...v })
+      .onConflictDoUpdate({ target: t.storeSettings.id, set: v });
   }
 
-  private async insertProduct(p: Product): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-    const imgs = imagesOf(p);
-    await sql`INSERT INTO products (id, name, category, price, cost_price, stock, unit, image_url, images, sku, description, is_active)
-      VALUES (${p.id}, ${p.name}, ${p.category}, ${p.price}, ${p.costPrice || 0}, ${p.stock}, ${p.unit || 'pcs'},
-       ${imgs[0] ?? null}, ${JSON.stringify(imgs)}::jsonb, ${p.sku ?? null}, ${p.description ?? null}, ${p.isActive !== false})
-      ON CONFLICT (id) DO NOTHING`;
+  private async insertProduct(db: Db, p: Product): Promise<void> {
+    await db.insert(t.products).values({ id: p.id, ...productValues(p) }).onConflictDoNothing();
   }
 
-  private async saveProduct(p: Product): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-    const imgs = imagesOf(p);
-    await sql`UPDATE products SET
-      name = ${p.name}, category = ${p.category}, price = ${p.price}, cost_price = ${p.costPrice || 0},
-      stock = ${p.stock}, unit = ${p.unit || 'pcs'}, image_url = ${imgs[0] ?? null},
-      images = ${JSON.stringify(imgs)}::jsonb, sku = ${p.sku ?? null},
-      description = ${p.description ?? null}, is_active = ${p.isActive !== false}
-      WHERE id = ${p.id}`;
+  private async insertCustomer(db: Db, c: Customer): Promise<void> {
+    await db.insert(t.customers).values({ id: c.id, ...customerValues(c) }).onConflictDoNothing();
   }
 
-  private async insertCustomer(c: Customer): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-    await sql`INSERT INTO customers (id, name, phone, email, address, total_spent, orders_count, first_visit, last_visit, notes)
-      VALUES (${c.id}, ${c.name}, ${c.phone || ''}, ${c.email ?? null}, ${c.address ?? null},
-       ${c.totalSpent || 0}, ${c.ordersCount || 0}, ${c.firstVisit}, ${c.lastVisit}, ${c.notes ?? null})
-      ON CONFLICT (id) DO NOTHING`;
-  }
-
-  private async saveCustomer(c: Customer): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-    await sql`UPDATE customers SET
-      name = ${c.name}, phone = ${c.phone || ''}, email = ${c.email ?? null}, address = ${c.address ?? null},
-      total_spent = ${c.totalSpent || 0}, orders_count = ${c.ordersCount || 0},
-      first_visit = ${c.firstVisit}, last_visit = ${c.lastVisit}, notes = ${c.notes ?? null}
-      WHERE id = ${c.id}`;
-  }
-
-  private async insertItem(orderId: string, it: any, position: number): Promise<void> {
-    const sql = getSql();
-    if (!sql) return;
-    await sql`INSERT INTO order_items
-      (order_id, position, product_id, product_name, price, cost_price, quantity, length, width, area, subtotal, note)
-      VALUES (${orderId}, ${position}, ${it.productId ?? null}, ${it.productName}, ${it.price},
-       ${it.costPrice ?? null}, ${it.quantity}, ${it.length ?? null}, ${it.width ?? null},
-       ${it.area ?? null}, ${it.subtotal}, ${it.note ?? null})`;
-  }
-
-  // Simpan order + itemnya. Mengembalikan false kalau order sudah ada.
-  private async insertOrder(o: Order): Promise<boolean> {
-    const sql = getSql();
-    if (!sql) return false;
-    const r = await sql`INSERT INTO orders
-      (id, invoice_number, customer_id, customer_name, customer_phone, subtotal, discount, tax, total,
-       payment_method, payment_status, cash_given, cash_change, notes, created_at)
-      VALUES (${o.id}, ${o.invoiceNumber}, ${o.customerId ?? null}, ${o.customerName}, ${o.customerPhone ?? null},
-       ${o.subtotal}, ${o.discount || 0}, ${o.tax || 0}, ${o.total}, ${o.paymentMethod},
-       ${o.paymentStatus || 'lunas'}, ${o.cashGiven ?? null}, ${o.cashChange ?? null}, ${o.notes ?? null},
-       ${o.createdAt})
-      ON CONFLICT (id) DO NOTHING RETURNING id`;
+  /** Simpan order + itemnya. Mengembalikan false kalau order sudah ada. */
+  private async insertOrder(db: Db, o: Order): Promise<boolean> {
+    const r = await db.insert(t.orders).values({ id: o.id, ...orderValues(o) })
+      .onConflictDoNothing().returning({ id: t.orders.id });
     if (r.length === 0) return false;
-    await Promise.all(o.items.map((it, i) => this.insertItem(o.id, it, i)));
+    if (o.items.length > 0) {
+      await db.insert(t.orderItems).values(o.items.map((it, i) => itemValues(o.id, it, i)));
+    }
     return true;
   }
 
@@ -632,125 +425,60 @@ export class ServerDatabase {
   // Products
   // -------------------------
   public async getProducts(): Promise<Product[]> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`SELECT * FROM products ORDER BY seq ASC`;
-        return r.map(toProduct);
-      }
-    } catch (e: any) {
-      console.warn('Neon getProducts error, using local fallback:', e.message);
-    }
-    return [...this.localData.products];
+    const db = await this.db();
+    const rows = await db.select().from(t.products).orderBy(asc(t.products.seq));
+    return rows.map(toProduct);
   }
 
   public async getProductById(id: string): Promise<Product | undefined> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`SELECT * FROM products WHERE id = ${id}`;
-        if (r[0]) return toProduct(r[0]);
-      }
-    } catch (e: any) {
-      console.warn('Neon getProductById error, using local fallback:', e.message);
-    }
-    return this.localData.products.find(p => p.id === id);
+    const db = await this.db();
+    const rows = await db.select().from(t.products).where(eq(t.products.id, id));
+    return rows[0] ? toProduct(rows[0]) : undefined;
   }
 
   public async createProduct(product: Omit<Product, 'id'> & { id?: string }): Promise<Product> {
+    const db = await this.db();
     const newProduct: Product = {
       ...product,
       id: product.id || `prod-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       isActive: product.isActive !== undefined ? product.isActive : true,
     };
-    this.localData.products.push(newProduct);
-    this.saveLocalData();
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        await this.insertProduct(newProduct);
-      }
-    } catch (e: any) {
-      console.warn('Neon createProduct error:', e.message);
-    }
-    return newProduct;
+    const [row] = await db.insert(t.products).values({ id: newProduct.id, ...productValues(newProduct) }).returning();
+    return toProduct(row);
   }
 
   public async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
-    const idx = this.localData.products.findIndex(p => p.id === id);
-    let updatedProduct: Product | null = null;
-    if (idx !== -1) {
-      this.localData.products[idx] = { ...this.localData.products[idx], ...updates, id };
-      updatedProduct = this.localData.products[idx];
-      this.saveLocalData();
-    }
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const current = await this.getProductById(id);
-        if (current) {
-          const next = { ...current, ...updates, id };
-          await this.saveProduct(next);
-          return next;
-        }
-      }
-    } catch (e: any) {
-      console.warn('Neon updateProduct error:', e.message);
-    }
-    return updatedProduct;
+    const db = await this.db();
+    const current = await this.getProductById(id);
+    if (!current) return null;
+    const next: Product = { ...current, ...updates, id };
+    await db.update(t.products).set(productValues(next)).where(eq(t.products.id, id));
+    return next;
   }
 
   public async deleteProduct(id: string): Promise<boolean> {
-    const prevLen = this.localData.products.length;
-    this.localData.products = this.localData.products.filter(p => p.id !== id);
-    if (this.localData.products.length !== prevLen) {
-      this.saveLocalData();
-    }
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`DELETE FROM products WHERE id = ${id} RETURNING id`;
-        return r.length > 0;
-      }
-    } catch (e: any) {
-      console.warn('Neon deleteProduct error:', e.message);
-    }
-    return this.localData.products.length !== prevLen;
+    const db = await this.db();
+    const r = await db.delete(t.products).where(eq(t.products.id, id)).returning({ id: t.products.id });
+    return r.length > 0;
   }
 
   // -------------------------
-  // Customers (Automatic CRM)
+  // Customers (CRM otomatis)
   // -------------------------
   public async getCustomers(): Promise<Customer[]> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`SELECT * FROM customers ORDER BY seq DESC`;
-        return r.map(toCustomer);
-      }
-    } catch (e: any) {
-      console.warn('Neon getCustomers error, using local fallback:', e.message);
-    }
-    return [...this.localData.customers];
+    const db = await this.db();
+    const rows = await db.select().from(t.customers).orderBy(desc(t.customers.seq));
+    return rows.map(toCustomer);
   }
 
   public async getCustomerById(id: string): Promise<Customer | undefined> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`SELECT * FROM customers WHERE id = ${id}`;
-        if (r[0]) return toCustomer(r[0]);
-      }
-    } catch (e: any) {
-      console.warn('Neon getCustomerById error, using local fallback:', e.message);
-    }
-    return this.localData.customers.find(c => c.id === id);
+    const db = await this.db();
+    const rows = await db.select().from(t.customers).where(eq(t.customers.id, id));
+    return rows[0] ? toCustomer(rows[0]) : undefined;
   }
 
   public async createCustomer(cust: Omit<Customer, 'id'> & { id?: string }): Promise<Customer> {
+    const db = await this.db();
     const newCust: Customer = {
       ...cust,
       id: cust.id || `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -759,158 +487,96 @@ export class ServerDatabase {
       totalSpent: cust.totalSpent || 0,
       ordersCount: cust.ordersCount || 0,
     };
-    this.localData.customers.unshift(newCust);
-    this.saveLocalData();
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        await this.insertCustomer(newCust);
-      }
-    } catch (e: any) {
-      console.warn('Neon createCustomer error:', e.message);
-    }
-    return newCust;
+    const [row] = await db.insert(t.customers).values({ id: newCust.id, ...customerValues(newCust) }).returning();
+    return toCustomer(row);
   }
 
   public async updateCustomer(id: string, updates: Partial<Customer>): Promise<Customer | null> {
-    const idx = this.localData.customers.findIndex(c => c.id === id);
-    let updatedCust: Customer | null = null;
-    if (idx !== -1) {
-      this.localData.customers[idx] = { ...this.localData.customers[idx], ...updates, id };
-      updatedCust = this.localData.customers[idx];
-      this.saveLocalData();
-    }
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const current = await this.getCustomerById(id);
-        if (current) {
-          const next = { ...current, ...updates, id };
-          await this.saveCustomer(next);
-          return next;
-        }
-      }
-    } catch (e: any) {
-      console.warn('Neon updateCustomer error:', e.message);
-    }
-    return updatedCust;
+    const db = await this.db();
+    const current = await this.getCustomerById(id);
+    if (!current) return null;
+    const next: Customer = { ...current, ...updates, id };
+    await db.update(t.customers).set(customerValues(next)).where(eq(t.customers.id, id));
+    return next;
   }
 
   public async recordCustomerFromOrder(name: string, phone: string, total: number): Promise<Customer> {
+    const db = await this.db();
     const cleanPhone = phone.replace(/[^0-9+]/g, '').trim();
     const cleanName = name.trim() || 'Pelanggan Umum';
-    const nowIso = new Date().toISOString();
+    const now = new Date();
 
-    let existingLocal = this.localData.customers.find(c => {
-      const cp = (c.phone || '').replace(/[^0-9+]/g, '').trim();
-      if (cleanPhone && cp && cp === cleanPhone) return true;
-      if (cleanName !== 'Pelanggan Umum' && c.name.toLowerCase() === cleanName.toLowerCase()) return true;
-      return false;
-    });
+    let found: typeof t.customers.$inferSelect | undefined;
 
-    if (existingLocal) {
-      existingLocal.totalSpent += total;
-      existingLocal.ordersCount += 1;
-      existingLocal.lastVisit = nowIso;
-      if (cleanName !== 'Pelanggan Umum' && (!existingLocal.name || existingLocal.name === 'Pelanggan Umum')) {
-        existingLocal.name = cleanName;
-      }
-      if (cleanPhone && !existingLocal.phone) existingLocal.phone = cleanPhone;
-      this.saveLocalData();
-    } else {
-      existingLocal = {
-        id: `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        name: cleanName,
-        phone: cleanPhone || '',
-        totalSpent: total,
-        ordersCount: 1,
-        firstVisit: nowIso,
-        lastVisit: nowIso,
-        notes: 'Pencatatan otomatis dari pesanan kasir',
+    // 1. Cari lewat nomor HP
+    if (cleanPhone) {
+      const r = await db.select().from(t.customers)
+        .where(sql`regexp_replace(COALESCE(${t.customers.phone}, ''), '[^0-9+]', '', 'g') = ${cleanPhone}`)
+        .orderBy(asc(t.customers.seq)).limit(1);
+      found = r[0];
+    }
+    // 2. Cari lewat nama (pelanggan umum tanpa HP memakai satu baris yang sama)
+    if (!found && (cleanName !== 'Pelanggan Umum' || !cleanPhone)) {
+      const r = await db.select().from(t.customers)
+        .where(sql`LOWER(${t.customers.name}) = LOWER(${cleanName})`)
+        .orderBy(asc(t.customers.seq)).limit(1);
+      found = r[0];
+    }
+
+    if (found) {
+      const patch: Partial<typeof t.customers.$inferInsert> = {
+        totalSpent: sql`${t.customers.totalSpent} + ${total}` as any,
+        ordersCount: sql`${t.customers.ordersCount} + 1` as any,
+        lastVisit: now,
       };
-      this.localData.customers.unshift(existingLocal);
-      this.saveLocalData();
+      if (cleanName !== 'Pelanggan Umum' && (!found.name || found.name === 'Pelanggan Umum')) patch.name = cleanName;
+      if (cleanPhone && !found.phone) patch.phone = cleanPhone;
+      const [row] = await db.update(t.customers).set(patch).where(eq(t.customers.id, found.id)).returning();
+      return toCustomer(row);
     }
 
-    try {
-      const sql = await this.db();
-      if (sql) {
-        let found: any;
-        if (cleanPhone) {
-          const r = await sql`SELECT * FROM customers
-            WHERE regexp_replace(COALESCE(phone, ''), '[^0-9+]', '', 'g') = ${cleanPhone}
-            ORDER BY seq ASC LIMIT 1`;
-          found = r[0];
-        }
-        if (!found && cleanName !== 'Pelanggan Umum') {
-          const r = await sql`SELECT * FROM customers WHERE LOWER(name) = LOWER(${cleanName}) ORDER BY seq ASC LIMIT 1`;
-          found = r[0];
-        }
-
-        if (found) {
-          const existing = toCustomer(found);
-          existing.totalSpent += total;
-          existing.ordersCount += 1;
-          existing.lastVisit = nowIso;
-          if (cleanName !== 'Pelanggan Umum' && (!existing.name || existing.name === 'Pelanggan Umum')) {
-            existing.name = cleanName;
-          }
-          if (cleanPhone && !existing.phone) existing.phone = cleanPhone;
-          await this.saveCustomer(existing);
-          return existing;
-        } else {
-          await this.insertCustomer(existingLocal);
-        }
-      }
-    } catch (e: any) {
-      console.warn('Neon recordCustomerFromOrder error:', e.message);
-    }
-
-    return existingLocal;
+    const [row] = await db.insert(t.customers).values({
+      id: `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      name: cleanName,
+      phone: cleanPhone || '',
+      totalSpent: String(total),
+      ordersCount: 1,
+      firstVisit: now,
+      lastVisit: now,
+      notes: 'Pencatatan otomatis dari pesanan kasir',
+    }).returning();
+    return toCustomer(row);
   }
 
   // -------------------------
   // Orders
   // -------------------------
   public async getOrders(): Promise<Order[]> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const orders = await sql`SELECT * FROM orders ORDER BY seq DESC`;
-        const items = await sql`SELECT * FROM order_items ORDER BY position ASC, id ASC`;
-        const byOrder = new Map<string, any[]>();
-        for (const it of items) {
-          const list = byOrder.get(it.order_id) || [];
-          list.push(it);
-          byOrder.set(it.order_id, list);
-        }
-        return orders.map((o: any) => toOrder(o, byOrder.get(o.id) || []));
-      }
-    } catch (e: any) {
-      console.warn('Neon getOrders error, using local fallback:', e.message);
+    const db = await this.db();
+    const orders = await db.select().from(t.orders).orderBy(desc(t.orders.seq));
+    const items = await db.select().from(t.orderItems).orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
+    const byOrder = new Map<string, (typeof t.orderItems.$inferSelect)[]>();
+    for (const it of items) {
+      const list = byOrder.get(it.orderId) || [];
+      list.push(it);
+      byOrder.set(it.orderId, list);
     }
-    return [...this.localData.orders];
+    return orders.map(o => toOrder(o, byOrder.get(o.id) || []));
   }
 
   public async getOrderById(id: string): Promise<Order | undefined> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const o = await sql`SELECT * FROM orders WHERE id = ${id}`;
-        if (o[0]) {
-          const items = await sql`SELECT * FROM order_items WHERE order_id = ${id} ORDER BY position ASC, id ASC`;
-          return toOrder(o[0], items);
-        }
-      }
-    } catch (e: any) {
-      console.warn('Neon getOrderById error, using local fallback:', e.message);
-    }
-    return this.localData.orders.find(o => o.id === id);
+    const db = await this.db();
+    const o = await db.select().from(t.orders).where(eq(t.orders.id, id));
+    if (!o[0]) return undefined;
+    const items = await db.select().from(t.orderItems)
+      .where(eq(t.orderItems.orderId, id))
+      .orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
+    return toOrder(o[0], items);
   }
 
   public async createOrder(orderInput: Order): Promise<{ order: Order; customer: Customer }> {
+    const db = await this.db();
+
     // 1. Catat customer otomatis
     const customer = await this.recordCustomerFromOrder(
       orderInput.customerName,
@@ -918,37 +584,26 @@ export class ServerDatabase {
       orderInput.total
     );
 
-    // 2. Potong stok lokal
-    for (const item of orderInput.items) {
-      const prod = this.localData.products.find(p => p.id === item.productId);
-      if (prod) {
-        prod.stock = Math.max(0, prod.stock - item.quantity);
-      }
-    }
-
-    // 3. Simpan order lokal
     const finalizedOrder: Order = {
       ...orderInput,
       customerId: customer.id,
       createdAt: orderInput.createdAt || new Date().toISOString(),
     };
-    this.localData.orders.unshift(finalizedOrder);
-    this.saveLocalData();
 
-    // 4. Update Neon jika aktif
-    try {
-      const sql = await this.db();
-      if (sql) {
-        await Promise.all(
-          orderInput.items.map(item =>
-            sql`UPDATE products SET stock = GREATEST(0, stock - ${item.quantity}) WHERE id = ${item.productId}`
-          )
-        );
-        await this.insertOrder(finalizedOrder);
-      }
-    } catch (e: any) {
-      console.warn('Neon createOrder error:', e.message);
+    // 2. Simpan order + item + potong stok sekaligus (satu paket, semua berhasil atau semua batal)
+    const ops: any[] = [db.insert(t.orders).values({ id: finalizedOrder.id, ...orderValues(finalizedOrder) })];
+    if (finalizedOrder.items.length > 0) {
+      ops.push(db.insert(t.orderItems).values(finalizedOrder.items.map((it, i) => itemValues(finalizedOrder.id, it, i))));
     }
+    for (const it of finalizedOrder.items) {
+      if (!it.productId) continue;
+      ops.push(
+        db.update(t.products)
+          .set({ stock: sql`GREATEST(0, ${t.products.stock} - ${it.quantity})` as any })
+          .where(eq(t.products.id, it.productId))
+      );
+    }
+    await db.batch(ops as [any, ...any[]]);
 
     return { order: finalizedOrder, customer };
   }
@@ -959,7 +614,8 @@ export class ServerDatabase {
       Pick<Order, 'customerName' | 'customerPhone' | 'paymentMethod' | 'items' | 'discount' | 'tax' | 'notes'>
     >
   ): Promise<Order | null> {
-    const current = this.localData.orders.find(o => o.id === id);
+    const db = await this.db();
+    const current = await this.getOrderById(id);
     if (!current) return null;
 
     const next: Order = { ...current };
@@ -973,23 +629,9 @@ export class ServerDatabase {
 
     if (updates.items !== undefined) {
       if (updates.items.length === 0) throw new Error('Invoice minimal harus punya 1 item.');
-
-      // Kembalikan stok lama & kurangi stok baru
-      for (const it of current.items) {
-        const prod = this.localData.products.find(p => p.id === it.productId);
-        if (prod) prod.stock += it.quantity;
-      }
-      for (const it of updates.items) {
-        const prod = this.localData.products.find(p => p.id === it.productId);
-        if (prod) prod.stock = Math.max(0, prod.stock - it.quantity);
-      }
-
       next.items = updates.items.map(it => ({
         ...it,
-        subtotal:
-          (Number(it.price) || 0) *
-          (Number(it.quantity) || 0) *
-          (it.area ? Number(it.area) : 1),
+        subtotal: (Number(it.price) || 0) * (Number(it.quantity) || 0) * (it.area ? Number(it.area) : 1),
       }));
     }
 
@@ -1003,286 +645,142 @@ export class ServerDatabase {
     }
 
     const diff = next.total - current.total;
+    const ops: any[] = [];
+
+    if (updates.items !== undefined) {
+      // Kembalikan stok lama, kurangi stok baru
+      const delta = new Map<string, number>();
+      for (const it of current.items) delta.set(it.productId, (delta.get(it.productId) || 0) + it.quantity);
+      for (const it of updates.items) delta.set(it.productId, (delta.get(it.productId) || 0) - it.quantity);
+      for (const [productId, d] of delta.entries()) {
+        if (d === 0 || !productId) continue;
+        ops.push(
+          db.update(t.products)
+            .set({ stock: sql`GREATEST(0, ${t.products.stock} + ${d})` as any })
+            .where(eq(t.products.id, productId))
+        );
+      }
+      ops.push(db.delete(t.orderItems).where(eq(t.orderItems.orderId, id)));
+      ops.push(db.insert(t.orderItems).values(next.items.map((it, i) => itemValues(id, it, i))));
+    }
+
     if (diff !== 0 && current.customerId) {
-      const cust = this.localData.customers.find(c => c.id === current.customerId);
-      if (cust) {
-        cust.totalSpent = Math.max(0, cust.totalSpent + diff);
-      }
+      ops.push(
+        db.update(t.customers)
+          .set({ totalSpent: sql`GREATEST(0, ${t.customers.totalSpent} + ${diff})` as any })
+          .where(eq(t.customers.id, current.customerId))
+      );
     }
 
-    const oIdx = this.localData.orders.findIndex(o => o.id === id);
-    if (oIdx !== -1) {
-      this.localData.orders[oIdx] = next;
-    }
-    this.saveLocalData();
+    ops.push(
+      db.update(t.orders).set({
+        customerName: next.customerName,
+        customerPhone: next.customerPhone ?? null,
+        subtotal: String(next.subtotal),
+        discount: String(next.discount || 0),
+        tax: String(next.tax || 0),
+        total: String(next.total),
+        paymentMethod: next.paymentMethod,
+        cashChange: str(next.cashChange),
+        notes: next.notes ?? null,
+      }).where(eq(t.orders.id, id))
+    );
 
-    try {
-      const sql = await this.db();
-      if (sql) {
-        if (updates.items !== undefined) {
-          const delta = new Map<string, number>();
-          for (const it of current.items) {
-            delta.set(it.productId, (delta.get(it.productId) || 0) + it.quantity);
-          }
-          for (const it of updates.items) {
-            delta.set(it.productId, (delta.get(it.productId) || 0) - it.quantity);
-          }
-          await Promise.all(
-            [...delta.entries()]
-              .filter(([, d]) => d !== 0)
-              .map(([productId, d]) =>
-                sql`UPDATE products SET stock = GREATEST(0, stock + ${d}) WHERE id = ${productId}`
-              )
-          );
-          await sql`DELETE FROM order_items WHERE order_id = ${id}`;
-          await Promise.all(next.items.map((it, i) => this.insertItem(id, it, i)));
-        }
-
-        if (diff !== 0 && current.customerId) {
-          await sql`UPDATE customers SET total_spent = GREATEST(0, total_spent + ${diff}) WHERE id = ${current.customerId}`;
-        }
-
-        await sql`UPDATE orders SET
-          customer_name = ${next.customerName}, customer_phone = ${next.customerPhone ?? null},
-          subtotal = ${next.subtotal}, discount = ${next.discount || 0}, tax = ${next.tax || 0},
-          total = ${next.total}, payment_method = ${next.paymentMethod},
-          cash_change = ${next.cashChange ?? null}, notes = ${next.notes ?? null}
-          WHERE id = ${id}`;
-      }
-    } catch (e: any) {
-      console.warn('Neon updateOrder error:', e.message);
-    }
-
+    await db.batch(ops as [any, ...any[]]);
     return next;
   }
 
   public async deleteOrder(id: string): Promise<boolean> {
-    const prevLen = this.localData.orders.length;
-    this.localData.orders = this.localData.orders.filter(o => o.id !== id);
-    if (this.localData.orders.length !== prevLen) {
-      this.saveLocalData();
-    }
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`DELETE FROM orders WHERE id = ${id} RETURNING id`;
-        return r.length > 0;
-      }
-    } catch (e: any) {
-      console.warn('Neon deleteOrder error:', e.message);
-    }
-    return this.localData.orders.length !== prevLen;
+    const db = await this.db();
+    const r = await db.delete(t.orders).where(eq(t.orders.id, id)).returning({ id: t.orders.id });
+    return r.length > 0;
   }
 
   // -------------------------
   // Settings
   // -------------------------
   public async getSettings(): Promise<StoreSettings> {
-    try {
-      const sql = await this.db();
-      if (sql) {
-        const r = await sql`SELECT * FROM store_settings WHERE id = 1`;
-        if (r[0]) return toSettings(r[0]);
-      }
-    } catch (e: any) {
-      console.warn('Neon getSettings error, using local fallback:', e.message);
-    }
-    return { ...this.localData.settings, neonDatabaseUrl: '' };
+    const db = await this.db();
+    const r = await db.select().from(t.storeSettings).where(eq(t.storeSettings.id, 1));
+    return r[0] ? toSettings(r[0]) : { ...DEFAULT_SETTINGS, neonDatabaseUrl: '' };
   }
 
   public async updateSettings(settings: Partial<StoreSettings>): Promise<StoreSettings> {
-    const { neonDatabaseUrl, ...safe } = settings;
-    const current = { ...this.localData.settings };
+    const db = await this.db();
+    const { neonDatabaseUrl, ...safe } = settings; // URL database tidak pernah disimpan dari browser
+    const current = await this.getSettings();
     const next: StoreSettings = { ...current, ...safe, neonDatabaseUrl: '' };
-    this.localData.settings = next;
-    this.saveLocalData();
-
-    try {
-      const sql = await this.db();
-      if (sql) {
-        await this.saveSettings(next);
-      }
-    } catch (e: any) {
-      console.warn('Neon updateSettings error:', e.message);
-    }
+    await this.saveSettings(db, next);
     return next;
   }
+
   // -------------------------
-  // Neon PostgreSQL Integration
+  // Neon (tombol "Tes Koneksi" / "Sinkronkan" di Setelan)
+  // Sekarang selalu memakai DATABASE_URL di server, bukan URL dari browser.
   // -------------------------
-  public async testNeonConnection(connectionString: string): Promise<{ success: boolean; message: string; timestamp?: string }> {
+  public async testNeonConnection(_url?: string): Promise<{ success: boolean; message: string; timestamp?: string }> {
     try {
-      if (!connectionString.trim()) {
-        return { success: false, message: 'Connection string Neon tidak boleh kosong.' };
-      }
-      const sql = neon(connectionString);
-      const rows = await sql`SELECT NOW() as current_time, version() as pg_version;`;
+      const db = await this.db();
+      const r: any = await db.execute(sql`SELECT NOW() AS current_time`);
+      const rows = r?.rows ?? r;
       return {
         success: true,
-        message: 'Koneksi ke Neon PostgreSQL Berhasil!',
-        timestamp: rows[0]?.current_time?.toString(),
+        message: 'Koneksi ke Neon PostgreSQL berhasil!',
+        timestamp: rows?.[0]?.current_time ? String(rows[0].current_time) : undefined,
       };
     } catch (err: any) {
-      return {
-        success: false,
-        message: err.message || 'Gagal tersambung ke Neon PostgreSQL. Periksa URL koneksi Anda.',
-      };
+      return { success: false, message: err.message || 'Gagal tersambung ke Neon PostgreSQL.' };
     }
   }
 
-  public async syncToNeon(connectionString: string): Promise<{ success: boolean; message: string; rowsAffected?: number }> {
-    try {
-      const sql = neon(connectionString);
-      const allProducts = await this.getProducts();
-      const allCustomers = await this.getCustomers();
-
-      // Create tables in Neon
-      await sql`
-        CREATE TABLE IF NOT EXISTS products (
-          id VARCHAR(64) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          category VARCHAR(100) NOT NULL,
-          price NUMERIC(12, 2) NOT NULL,
-          cost_price NUMERIC(12, 2) DEFAULT 0,
-          stock INT NOT NULL DEFAULT 0,
-          unit VARCHAR(30) DEFAULT 'pcs',
-          image_url TEXT,
-          sku VARCHAR(100),
-          description TEXT,
-          is_active BOOLEAN DEFAULT TRUE,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-      `;
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS customers (
-          id VARCHAR(64) PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          phone VARCHAR(50),
-          email VARCHAR(255),
-          address TEXT,
-          total_spent NUMERIC(14, 2) DEFAULT 0,
-          orders_count INT DEFAULT 0,
-          first_visit TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-          last_visit TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-          notes TEXT
-        );
-      `;
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS orders (
-          id VARCHAR(64) PRIMARY KEY,
-          invoice_number VARCHAR(100) UNIQUE NOT NULL,
-          customer_id VARCHAR(64),
-          customer_name VARCHAR(255) NOT NULL,
-          customer_phone VARCHAR(50),
-          subtotal NUMERIC(12, 2) NOT NULL,
-          discount NUMERIC(12, 2) DEFAULT 0,
-          tax NUMERIC(12, 2) DEFAULT 0,
-          total NUMERIC(12, 2) NOT NULL,
-          payment_method VARCHAR(50) NOT NULL,
-          payment_status VARCHAR(50) DEFAULT 'lunas',
-          cash_given NUMERIC(12, 2),
-          cash_change NUMERIC(12, 2),
-          notes TEXT,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        );
-      `;
-
-      // Upsert products to Neon
-      for (const p of allProducts) {
-        await sql`
-          INSERT INTO products (id, name, category, price, cost_price, stock, unit, sku, description, is_active)
-          VALUES (${p.id}, ${p.name}, ${p.category}, ${p.price}, ${p.costPrice || 0}, ${p.stock}, ${p.unit}, ${p.sku || ''}, ${p.description || ''}, ${p.isActive})
-          ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            price = EXCLUDED.price,
-            stock = EXCLUDED.stock;
-        `;
-      }
-
-      // Upsert customers to Neon
-      for (const c of allCustomers) {
-        await sql`
-          INSERT INTO customers (id, name, phone, email, address, total_spent, orders_count, notes)
-          VALUES (${c.id}, ${c.name}, ${c.phone || ''}, ${c.email || ''}, ${c.address || ''}, ${c.totalSpent}, ${c.ordersCount}, ${c.notes || ''})
-          ON CONFLICT (id) DO UPDATE SET
-            total_spent = EXCLUDED.total_spent,
-            orders_count = EXCLUDED.orders_count;
-        `;
-      }
-
-      return {
-        success: true,
-        message: 'Seluruh data produk dan customer berhasil disinkronkan ke Neon PostgreSQL!',
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: err.message || 'Gagal sinkronisasi data ke Neon PostgreSQL.',
-      };
-    }
+  public async syncToNeon(_url?: string): Promise<{ success: boolean; message: string }> {
+    const s = await this.status();
+    return s.connected
+      ? { success: true, message: 'Data sudah tersimpan langsung di Neon. Sinkronisasi manual tidak diperlukan.' }
+      : { success: false, message: s.error || 'Neon tidak terhubung.' };
   }
 
+  // -------------------------
+  // Backup / Restore
+  // -------------------------
   public async importBackup(backupData: {
     store?: Partial<StoreSettings>;
     products?: Product[];
     customers?: Customer[];
     orders?: Order[];
   }): Promise<{ success: boolean; message: string; counts: { products: number; customers: number; orders: number } }> {
-    if (backupData.store) {
-      await this.updateSettings(backupData.store);
-    }
+    const db = await this.db();
+
+    if (backupData.store) await this.updateSettings(backupData.store);
 
     if (Array.isArray(backupData.products)) {
-      this.localData.products = backupData.products;
+      for (const p of backupData.products) {
+        const v = productValues(p);
+        await db.insert(t.products).values({ id: p.id, ...v }).onConflictDoUpdate({ target: t.products.id, set: v });
+      }
     }
     if (Array.isArray(backupData.customers)) {
-      this.localData.customers = backupData.customers;
+      for (const c of backupData.customers) {
+        const v = customerValues(c);
+        await db.insert(t.customers).values({ id: c.id, ...v }).onConflictDoUpdate({ target: t.customers.id, set: v });
+      }
     }
     if (Array.isArray(backupData.orders)) {
-      this.localData.orders = backupData.orders;
+      for (const o of backupData.orders) await this.insertOrder(db, o);
     }
-    this.saveLocalData();
 
-    try {
-      const sql = await this.db();
-      if (sql) {
-        if (Array.isArray(backupData.products) && backupData.products.length > 0) {
-          for (const p of backupData.products) {
-            await sql`INSERT INTO products (id, name, category, price, cost_price, stock, unit, image_url, images, sku, description, is_active)
-              VALUES (${p.id}, ${p.name}, ${p.category}, ${p.price}, ${p.costPrice || 0}, ${p.stock}, ${p.unit || 'pcs'},
-               ${p.imageUrl ?? null}, ${JSON.stringify(imagesOf(p))}::jsonb, ${p.sku ?? null}, ${p.description ?? null}, ${p.isActive !== false})
-              ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name, category = EXCLUDED.category, price = EXCLUDED.price,
-                cost_price = EXCLUDED.cost_price, stock = EXCLUDED.stock, unit = EXCLUDED.unit,
-                image_url = EXCLUDED.image_url, images = EXCLUDED.images, sku = EXCLUDED.sku,
-                description = EXCLUDED.description, is_active = EXCLUDED.is_active`;
-          }
-        }
-        if (Array.isArray(backupData.customers) && backupData.customers.length > 0) {
-          for (const c of backupData.customers) {
-            await this.saveCustomer(c);
-          }
-        }
-        if (Array.isArray(backupData.orders) && backupData.orders.length > 0) {
-          for (const o of backupData.orders) {
-            await this.insertOrder(o);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.warn('Neon importBackup error:', e.message);
-    }
+    const count = async (table: any) => {
+      const r = await db.select({ c: sql<number>`count(*)::int` }).from(table);
+      return Number(r[0]?.c || 0);
+    };
 
     return {
       success: true,
       message: 'Database berhasil dipulihkan dari file cadangan!',
       counts: {
-        products: this.localData.products.length,
-        customers: this.localData.customers.length,
-        orders: this.localData.orders.length,
+        products: await count(t.products),
+        customers: await count(t.customers),
+        orders: await count(t.orders),
       },
     };
   }
