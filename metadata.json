@@ -1,6 +1,0 @@
-{
-  "name": "KiosMinimalis - Toko & Kasir HP",
-  "description": "Aplikasi toko & kasir mobile minimalis dengan katalog menu, cetak nota invoice thermal, pencatatan customer otomatis, dan laporan penjualan lengkap.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
