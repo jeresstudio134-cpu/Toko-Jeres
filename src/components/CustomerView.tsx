@@ -42,6 +42,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
   // Pesan notifikasi (toast)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const showToast = (type: 'success' | 'error', text: string) => {
     setToast({ type, text });
     setTimeout(() => setToast(null), 2500);
@@ -95,7 +96,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   };
 
   const handleSaveNotes = async () => {
-    if (!selectedCustomer) return;
+    if (!selectedCustomer || !isAdminAuthenticated) return;
     const updated: Customer = {
       ...selectedCustomer,
       notes: editNotes,
@@ -109,11 +110,16 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     showToast('success', 'Catatan berhasil disimpan');
   };
 
-  const handleDeleteCustomer = async (c: Customer) => {
-    const ok = window.confirm(
-      `Hapus customer "${c.name}"?\n\nRiwayat nota tidak ikut terhapus.`
-    );
-    if (!ok) return;
+  // Klik tombol Hapus -> buka kotak konfirmasi
+  const handleDeleteCustomer = (c: Customer) => {
+    setConfirmDelete(c);
+  };
+
+  // Klik "Hapus" di kotak konfirmasi -> benar-benar hapus
+  const confirmDeleteCustomer = async () => {
+    if (!confirmDelete) return;
+    const c = confirmDelete;
+    setConfirmDelete(null);
     const error = await onDeleteCustomer(c.id);
     if (error) {
       showToast('error', 'Gagal menghapus customer: ' + error);
@@ -195,17 +201,19 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           >
             <Download className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className={`px-3 py-1.5 font-bold rounded-xl text-xs inline-flex items-center gap-1 active:scale-95 transition-all shadow-xs ${
-              isDark
-                ? 'bg-white text-neutral-950 hover:bg-neutral-200'
-                : 'bg-neutral-900 text-white hover:bg-neutral-800'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah</span>
-          </button>
+          {isAdminAuthenticated && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className={`px-3 py-1.5 font-bold rounded-xl text-xs inline-flex items-center gap-1 active:scale-95 transition-all shadow-xs ${
+                isDark
+                  ? 'bg-white text-neutral-950 hover:bg-neutral-200'
+                  : 'bg-neutral-900 text-white hover:bg-neutral-800'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -475,24 +483,31 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                 <textarea
                   value={editNotes}
                   onChange={e => setEditNotes(e.target.value)}
-                  placeholder="Cth: Suka kopi less sugar, sering beli saat weekend..."
+                  readOnly={!isAdminAuthenticated}
+                  placeholder={
+                    isAdminAuthenticated
+                      ? 'Cth: Suka kopi less sugar, sering beli saat weekend...'
+                      : 'Belum ada catatan'
+                  }
                   className={`w-full text-xs p-2 rounded-lg border outline-none ${
+                    !isAdminAuthenticated ? 'cursor-default resize-none' : ''
+                  } ${
                     isDark ? 'bg-neutral-900 text-white border-neutral-700' : 'bg-white text-neutral-900 border-neutral-200'
                   }`}
                   rows={2}
                 />
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSaveNotes}
-                    className={`px-3 py-1 font-bold rounded-lg text-[11px] ${
-                      isDark ? 'bg-neutral-200 text-neutral-950' : 'bg-neutral-900 text-white'
-                    }`}
-                  >
-                    Simpan Catatan
-                  </button>
+                {isAdminAuthenticated ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSaveNotes}
+                      className={`px-3 py-1 font-bold rounded-lg text-[11px] ${
+                        isDark ? 'bg-neutral-200 text-neutral-950' : 'bg-neutral-900 text-white'
+                      }`}
+                    >
+                      Simpan Catatan
+                    </button>
 
-                  {isAdminAuthenticated && (
                     <button
                       type="button"
                       onClick={() => handleDeleteCustomer(selectedCustomer)}
@@ -505,8 +520,12 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                       <Trash2 className="w-3 h-3" />
                       <span>Hapus Customer</span>
                     </button>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-neutral-400 italic">
+                    Mode lihat saja. Masuk sebagai Admin untuk mengedit.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -650,6 +669,55 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Konfirmasi hapus customer */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-xs border rounded-2xl p-5 space-y-3 ${
+              isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-2xl'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                  isDark ? 'bg-red-950/60 text-red-400' : 'bg-red-50 text-red-600'
+                }`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </div>
+              <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-neutral-900'}`}>
+                Hapus Customer?
+              </h3>
+            </div>
+            <p className="text-xs text-neutral-500">
+              Customer{' '}
+              <span className={`font-bold ${isDark ? 'text-white' : 'text-neutral-900'}`}>
+                {confirmDelete.name}
+              </span>{' '}
+              akan dihapus. Riwayat nota tidak ikut terhapus.
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                className={`flex-1 py-2.5 font-bold rounded-xl text-xs ${
+                  isDark ? 'bg-neutral-800 text-neutral-300' : 'bg-neutral-100 text-neutral-700'
+                }`}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteCustomer}
+                className="flex-1 py-2.5 font-bold rounded-xl text-xs bg-red-600 text-white shadow-xs active:scale-95 transition-all"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
