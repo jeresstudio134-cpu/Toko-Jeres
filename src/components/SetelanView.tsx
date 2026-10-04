@@ -496,11 +496,7 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
               </p>
             )}
 
-            <div className="text-center pt-1">
-              <span className="text-[11px] text-neutral-400 bg-neutral-100 dark:bg-neutral-850 px-2.5 py-1 rounded-full border border-neutral-200 dark:border-neutral-800">
-                PIN Bawaan Admin: <strong className="font-mono text-neutral-800 dark:text-neutral-200">{targetAdminPin}</strong>
-              </span>
-            </div>
+            
           </div>
 
           {/* Clean Tactile Numeric Keypad */}
