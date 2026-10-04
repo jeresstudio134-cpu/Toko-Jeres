@@ -66,6 +66,19 @@ export const ApiService = {
     return res.json();
   },
 
+  async deleteCustomer(id: string, adminPin: string): Promise<boolean> {
+    const res = await fetch(`${API_BASE}/customers/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-pin': adminPin },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Gagal menghapus customer');
+    }
+    const data = await res.json();
+    return data.success;
+  },
+
   // Orders & Auto Customer Recording
   async getOrders(): Promise<Order[]> {
     const res = await fetch(`${API_BASE}/orders`);

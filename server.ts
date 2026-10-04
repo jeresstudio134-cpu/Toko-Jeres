@@ -318,6 +318,28 @@ app.put(
   })
 );
 
+app.delete(
+  '/api/customers/:id',
+  wrap(async (req, res) => {
+    const pin = req.header('x-admin-pin');
+    if (!(await serverDb.verifyAdminPin(pin))) {
+      return res.status(403).json({
+        error: 'Hanya admin yang boleh menghapus customer.',
+      });
+    }
+
+    const success = await serverDb.deleteCustomer(req.params.id);
+
+    if (!success) {
+      return res.status(404).json({
+        error: 'Customer not found',
+      });
+    }
+
+    res.json({ success: true });
+  })
+);
+
 // ======================================================
 // ORDERS / INVOICE
 // ======================================================

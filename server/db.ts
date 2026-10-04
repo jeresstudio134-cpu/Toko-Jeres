@@ -500,6 +500,17 @@ export class ServerDatabase {
     return next;
   }
 
+  public async deleteCustomer(id: string): Promise<boolean> {
+    const db = await this.db();
+    const r = await db.delete(t.customers).where(eq(t.customers.id, id)).returning({ id: t.customers.id });
+    return r.length > 0;
+  }
+
+  public async verifyAdminPin(pin: unknown): Promise<boolean> {
+    const s = await this.getSettings();
+    return typeof pin === 'string' && pin.length > 0 && pin === (s.adminPin || '1234');
+  }
+
   public async recordCustomerFromOrder(name: string, phone: string, total: number): Promise<Customer> {
     const db = await this.db();
     const cleanPhone = phone.replace(/[^0-9+]/g, '').trim();
