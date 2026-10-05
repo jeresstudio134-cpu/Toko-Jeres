@@ -401,9 +401,9 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
       {/* Customer Detail Drawer / Modal */}
       {selectedCustomer && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div
-            className={`w-full max-w-md border rounded-t-3xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto no-scrollbar space-y-4 ${
+            className={`w-full max-w-md border rounded-2xl p-5 max-h-[85dvh] overflow-y-auto overscroll-contain no-scrollbar space-y-4 ${
               isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-2xl'
             }`}
           >
@@ -534,9 +534,9 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
             {/* Transaction History of this Customer */}
             <div className={`space-y-2 pt-2 border-t ${isDark ? 'border-neutral-800' : 'border-neutral-100'}`}>
               <h4 className={`text-xs font-bold ${isDark ? 'text-white' : 'text-neutral-900'}`}>
-                Riwayat Transaksi Pelanggan
+                Riwayat Transaksi Pelanggan ({customerOrders.length})
               </h4>
-              <div className="space-y-2 max-h-48 overflow-y-auto no-scrollbar">
+              <div className="space-y-2 max-h-52 overflow-y-auto overscroll-contain pr-1">
                 {customerOrders.length === 0 ? (
                   <p className="text-[11px] text-neutral-500 italic">Belum ada nota terkait</p>
                 ) : (
@@ -580,10 +580,10 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
       {/* Add Customer Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
           <form
             onSubmit={handleCreateCustomer}
-            className={`w-full max-w-md border rounded-t-3xl sm:rounded-2xl p-5 space-y-3 ${
+            className={`w-full max-w-md border rounded-2xl p-5 space-y-3 max-h-[85dvh] overflow-y-auto overscroll-contain no-scrollbar ${
               isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-2xl'
             }`}
           >
