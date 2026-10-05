@@ -294,6 +294,16 @@ export class ServerDatabase {
   // Buat tabel kalau belum ada (aman dijalankan berulang)
   // -------------------------
   private async setup(db: Db): Promise<void> {
+    // Jalur cepat: kalau tabel sudah ada dan terisi, lewati semua perintah pembuatan tabel
+    try {
+      const ready = await db
+        .select({ id: t.storeSettings.id })
+        .from(t.storeSettings)
+        .where(eq(t.storeSettings.id, 1));
+      if (ready.length > 0) return;
+    } catch {
+      // tabel belum ada, lanjut membuat tabel di bawah
+    }
     await Promise.all([
       db.execute(sql`CREATE TABLE IF NOT EXISTS store_settings (
         id INT PRIMARY KEY,

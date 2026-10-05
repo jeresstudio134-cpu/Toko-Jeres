@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Product, Customer, Order, StoreSettings, CartItem, ActiveTab } from './types';
 import { ApiService } from './services/api';
 import { Header } from './components/Header';
@@ -12,8 +12,12 @@ import { KatalogView } from './components/KatalogView';
 import { KasirView } from './components/KasirView';
 import { NotaView } from './components/NotaView';
 import { CustomerView } from './components/CustomerView';
-import { LaporanView } from './components/LaporanView';
-import { SetelanView } from './components/SetelanView';
+const LaporanView = lazy(() =>
+  import('./components/LaporanView').then(m => ({ default: m.LaporanView }))
+);
+const SetelanView = lazy(() =>
+  import('./components/SetelanView').then(m => ({ default: m.SetelanView }))
+);
 
 export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -47,19 +51,13 @@ export default function App() {
 
   // Load all initial data from the Full Server Database
   const refreshDatabase = async () => {
+    // Tahap 1: data yang dibutuhkan Katalog, tampilkan secepatnya
     try {
-      const [prodList, custList, ordList, storeSet] = await Promise.all([
+      const [prodList, storeSet] = await Promise.all([
         ApiService.getProducts(),
-        ApiService.getCustomers(),
-        ApiService.getOrders(),
         ApiService.getSettings(),
       ]);
       setProducts(prodList);
-      setCustomers(custList);
-      setOrders(ordList);
-      if (ordList.length > 0 && !activeOrder) {
-        setActiveOrder(ordList[0]);
-      }
       setSettings(storeSet);
       if (storeSet.theme) {
         setTheme(storeSet.theme);
@@ -68,6 +66,21 @@ export default function App() {
       console.error('Error fetching database:', e);
     } finally {
       setIsLoaded(true);
+    }
+
+    // Tahap 2: data yang lebih berat dimuat di latar belakang
+    try {
+      const [custList, ordList] = await Promise.all([
+        ApiService.getCustomers(),
+        ApiService.getOrders(),
+      ]);
+      setCustomers(custList);
+      setOrders(ordList);
+      if (ordList.length > 0) {
+        setActiveOrder(prev => prev ?? ordList[0]);
+      }
+    } catch (e) {
+      console.error('Error fetching customers/orders:', e);
     }
   };
 
@@ -247,7 +260,7 @@ export default function App() {
     }
   };
 
-  const handleUpdateCustomer = async (updatedCust: Customer): Promise<string | null> => {
+    const handleUpdateCustomer = async (updatedCust: Customer): Promise<string | null> => {
     try {
       const updated = await ApiService.updateCustomer(updatedCust.id, updatedCust);
       setCustomers(prev => prev.map(c => (c.id === updated.id ? updated : c)));
@@ -342,6 +355,11 @@ export default function App() {
         />
 
         <main className="flex-1 w-full overflow-y-auto no-scrollbar">
+          <Suspense
+            fallback={
+              <div className="p-6 text-center text-xs text-neutral-400 font-mono">Memuat...</div>
+            }
+          >
           {activeTab === 'katalog' && (
             <KatalogView
               products={products}
@@ -420,6 +438,7 @@ export default function App() {
               onGoBackToKatalog={() => setActiveTab('katalog')}
             />
           )}
+          </Suspense>
         </main>
 
         <BottomNav
