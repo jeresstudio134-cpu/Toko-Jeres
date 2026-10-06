@@ -7,7 +7,6 @@ import {
   SwitchCamera,
   CheckCircle2,
   Image as ImageIcon,
-  ArrowRight,
   ShieldAlert,
 } from 'lucide-react';
 import {
@@ -83,7 +82,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   const [isFileScanning, setIsFileScanning] =
     useState(false);
 
-  const [manualCode, setManualCode] = useState('');
+  
 
   const html5QrCodeRef =
     useRef<Html5Qrcode | null>(null);
@@ -260,258 +259,204 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   /**
    * Start Html5Qrcode.
    */
-  const startScanner = useCallback(
-    async (
-      cameraId?: string | null
-    ) => {
-      if (!isOpen) return;
+const startScanner = async () => {
+  if (!isOpen) return;
 
-      if (
-        !window.isSecureContext &&
-        window.location.hostname !==
-          'localhost' &&
-        window.location.hostname !==
-          '127.0.0.1'
-      ) {
-        setCameraState('denied');
+  await stopAndCleanup();
 
-        setError(
-          'Akses kamera membutuhkan HTTPS. Buka aplikasi melalui alamat HTTPS.'
-        );
+  setCameraState('initializing');
+  setError(null);
+  setDetectedCode(null);
+  hasDetectedRef.current = false;
 
-        return;
-      }
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(
+        'Browser tidak mendukung akses kamera.'
+      );
+    }
 
-      if (
-        !navigator.mediaDevices ||
-        !navigator.mediaDevices.getUserMedia
-      ) {
-        setCameraState('error');
+    // 1. Minta permission kamera terlebih dahulu
+    const stream =
+      await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      });
 
-        setError(
-          'Browser ini tidak mendukung akses kamera. Gunakan Chrome atau Edge terbaru.'
-        );
+    // Setelah permission berhasil, matikan stream sementara
+    stream.getTracks().forEach(track => {
+      track.stop();
+    });
 
-        return;
-      }
+    // 2. Ambil semua kamera
+    const devices =
+      await Html5Qrcode.getCameras();
 
-      await stopAndCleanup();
+    if (!devices || devices.length === 0) {
+      throw new Error(
+        'Kamera tidak ditemukan.'
+      );
+    }
 
-      if (!isMountedRef.current) return;
+    const cameraList = devices.map(
+      (device, index) => ({
+        id: device.id,
+        label:
+          device.label ||
+          `Kamera ${index + 1}`,
+      })
+    );
 
-      setCameraState('initializing');
-      setError(null);
-      setDetectedCode(null);
-      hasDetectedRef.current = false;
+    setCameras(cameraList);
 
-      try {
-        /**
-         * Request permission secara eksplisit.
-         *
-         * Ini membuat behavior permission lebih konsisten
-         * daripada langsung mengandalkan Html5Qrcode.
-         */
-        const permissionStream =
-          await navigator.mediaDevices.getUserMedia(
-            {
-              video: cameraId
-                ? {
-                    deviceId: {
-                      exact: cameraId,
-                    },
-                  }
-                : {
-                    facingMode: {
-                      ideal: 'environment',
-                    },
-                  },
-              audio: false,
-            }
-          );
+    // 3. Cari kamera belakang
+    const rearCamera =
+      cameraList.find(camera =>
+        /back|rear|environment|belakang|trase|main/i.test(
+          camera.label
+        )
+      );
 
-        /**
-         * Permission sudah diberikan.
-         * Matikan stream sementara karena Html5Qrcode
-         * akan membuka stream-nya sendiri.
-         */
-        permissionStream
-          .getTracks()
-          .forEach((track) => {
-            try {
-              track.stop();
-            } catch {}
-          });
+    // Kalau kamera belakang ditemukan gunakan itu.
+    // Kalau tidak, gunakan kamera terakhir sebagai fallback.
+    const selectedCamera =
+      rearCamera ||
+      cameraList[cameraList.length - 1];
 
-        if (!isMountedRef.current) return;
+    setCurrentCameraId(
+      selectedCamera.id
+    );
 
-        const scanner =
-          new Html5Qrcode(
-            scannerContainerId,
-            {
-              formatsToSupport: [
-                Html5QrcodeSupportedFormats.QR_CODE,
-                Html5QrcodeSupportedFormats.CODE_128,
-                Html5QrcodeSupportedFormats.CODE_39,
-                Html5QrcodeSupportedFormats.EAN_13,
-                Html5QrcodeSupportedFormats.UPC_A,
-              ],
-              verbose: false,
-              experimentalFeatures: {
-                useBarCodeDetectorIfSupported:
-                  true,
-              },
-            }
-          );
+    console.log(
+      'Kamera tersedia:',
+      cameraList
+    );
 
-        html5QrCodeRef.current = scanner;
+    console.log(
+      'Kamera dipilih:',
+      selectedCamera
+    );
 
-        const cameraConfig =
-          cameraId
-            ? cameraId
-            : {
-                facingMode: 'environment',
-              };
+    // 4. Buat scanner
+    const scanner =
+      new Html5Qrcode(
+        scannerContainerId,
+        {
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.UPC_A,
+          ],
+          verbose: false,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true,
+          },
+        }
+      );
 
-        await scanner.start(
-          cameraConfig,
-          {
-            fps: 15,
+    html5QrCodeRef.current = scanner;
 
-            qrbox: (
+    // 5. START DENGAN DEVICE ID KAMERA BELAKANG
+    await scanner.start(
+      selectedCamera.id,
+      {
+        fps: 15,
+
+        qrbox: (
+          viewfinderWidth,
+          viewfinderHeight
+        ) => {
+          const edge = Math.floor(
+            Math.min(
               viewfinderWidth,
               viewfinderHeight
-            ) => {
-              const edge = Math.floor(
-                Math.min(
-                  viewfinderWidth,
-                  viewfinderHeight
-                ) * 0.75
-              );
+            ) * 0.75
+          );
 
-              return {
-                width: edge,
-                height: edge,
-              };
-            },
+          return {
+            width: edge,
+            height: edge,
+          };
+        },
 
-            aspectRatio: 1,
-          },
+        aspectRatio: 1,
+      },
 
-          /**
-           * QR berhasil dibaca.
-           */
-          (decodedText) => {
-            if (
-              hasDetectedRef.current
-            ) {
-              return;
-            }
-
-            hasDetectedRef.current = true;
-
-            const cleanCode =
-              decodedText.trim();
-
-            setDetectedCode(
-              cleanCode
-            );
-
-            setCameraState('ready');
-
-            playBeepSound();
-
-            if (
-              navigator.vibrate
-            ) {
-              try {
-                navigator.vibrate([
-                  70,
-                  40,
-                  70,
-                ]);
-              } catch {}
-            }
-
-            setTimeout(async () => {
-              await stopAndCleanup();
-
-              if (
-                isMountedRef.current
-              ) {
-                onScan(cleanCode);
-              }
-            }, 400);
-          },
-
-          /**
-           * Error setiap frame diabaikan.
-           */
-          () => {}
-        );
-
-        if (!isMountedRef.current) {
-          await stopAndCleanup();
+      decodedText => {
+        if (hasDetectedRef.current) {
           return;
         }
 
-        setCameraState('ready');
-        setError(null);
+        hasDetectedRef.current = true;
 
-        /**
-         * Sekarang permission sudah pasti ada,
-         * jadi daftar kamera bisa dibaca.
-         */
-        try {
-          const devices =
-            await Html5Qrcode.getCameras();
+        const cleanCode =
+          decodedText.trim();
 
-          if (
-            isMountedRef.current &&
-            devices?.length
-          ) {
-            setCameras(
-              devices.map(
-                (device, index) => ({
-                  id: device.id,
-                  label:
-                    device.label ||
-                    `Kamera ${index + 1}`,
-                })
-              )
-            );
-          }
-        } catch {}
-      } catch (err: any) {
-        console.error(
-          'Gagal mengakses kamera:',
-          err
-        );
+        setDetectedCode(cleanCode);
 
-        await stopAndCleanup();
+        playBeepSound();
 
-        if (!isMountedRef.current)
-          return;
+        if (navigator.vibrate) {
+          try {
+            navigator.vibrate([
+              70,
+              40,
+              70,
+            ]);
+          } catch {}
+        }
 
-        const result =
-          getCameraErrorMessage(err);
+        setTimeout(async () => {
+          await stopAndCleanup();
+          onScan(cleanCode);
+        }, 400);
+      },
 
-        setCameraState(
-          result.denied
-            ? 'denied'
-            : 'error'
-        );
-
-        setError(
-          result.message
-        );
+      () => {
+        // frame gagal dibaca → abaikan
       }
-    },
-    [
-      isOpen,
-      onScan,
-      stopAndCleanup,
-    ]
-  );
+    );
+
+    setCameraState('ready');
+    setError(null);
+
+  } catch (err: any) {
+    console.error(
+      'Gagal membuka kamera:',
+      err
+    );
+
+    await stopAndCleanup();
+
+    const name = err?.name || '';
+    const message =
+      String(
+        err?.message || err
+      );
+
+    if (
+      name === 'NotAllowedError' ||
+      message
+        .toLowerCase()
+        .includes('permission')
+    ) {
+      setCameraState('denied');
+
+      setError(
+        'Akses kamera ditolak. Izinkan kamera melalui pengaturan browser.'
+      );
+    } else {
+      setCameraState('error');
+
+      setError(
+        message ||
+          'Kamera tidak dapat digunakan.'
+      );
+    }
+  }
+};
 
   /**
    * Saat modal dibuka.
@@ -801,20 +746,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       }
     };
 
-  /**
-   * Input nomor nota manual.
-   */
-  const handleManualSubmit =
-    async () => {
-      const value =
-        manualCode.trim();
-
-      if (!value) return;
-
-      await stopAndCleanup();
-
-      onScan(value);
-    };
+  
 
   if (!isOpen) {
     return null;
@@ -1089,64 +1021,25 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       {/* BOTTOM */}
       <div className="w-full max-w-md pb-2 text-center z-10 space-y-2">
 
+        {/* Scan dari galeri */}
         <button
           type="button"
-          onClick={() =>
-            fileInputRef.current?.click()
-          }
-          className="w-full py-2 px-3 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full py-2.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 border border-neutral-800 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all"
         >
           <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
-
-          <span>
-            Pindai dari Foto Galeri / Screenshot
-          </span>
+          <span>Pindai dari Foto Galeri / Screenshot</span>
         </button>
 
-        {/* Manual */}
-        <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-800 p-1 rounded-xl">
-
-          <input
-            type="text"
-            value={manualCode}
-            onChange={(e) =>
-              setManualCode(
-                e.target.value
-              )
-            }
-            onKeyDown={(e) => {
-              if (
-                e.key === 'Enter'
-              ) {
-                handleManualSubmit();
-              }
-            }}
-            placeholder="Atau ketik no. nota manual..."
-            className="flex-1 bg-transparent text-xs text-white placeholder-neutral-500 px-2.5 py-1.5 outline-none"
-          />
-
-          <button
-            type="button"
-            onClick={
-              handleManualSubmit
-            }
-            disabled={
-              !manualCode.trim()
-            }
-            className="px-3 py-1.5 bg-emerald-600 disabled:opacity-40 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 transition-all"
-          >
-            <span>Cari</span>
-            <ArrowRight className="w-3 h-3" />
-          </button>
-        </div>
-
+        {/* Tutup */}
         <button
           type="button"
           onClick={onClose}
-          className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white text-xs font-medium rounded-xl transition-all"
+          className="w-full py-2 bg-neutral-850 hover:bg-neutral-800 text-neutral-400 hover:text-white text-xs font-medium rounded-xl transition-all"
         >
           Tutup Pemindai
         </button>
+
       </div>
     </div>
   );
