@@ -450,6 +450,7 @@ export default function App() {
           cartCount={totalCartCount}
           theme={theme}
         />
+        </div>
       </div>
     </div>
   );
