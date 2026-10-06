@@ -13,8 +13,8 @@ import {
   AlertTriangle,
   X,
 } from 'lucide-react';
-import { Barcode } from './Barcode';
 import { BarcodeScanner } from './BarcodeScanner';
+import { QRCodeComponent } from './QRCodeComponent';
 
 interface NotaViewProps {
   orders: Order[];
@@ -401,13 +401,14 @@ export const NotaView: React.FC<NotaViewProps> = ({
                 {settings.receiptFooter || 'Terima kasih atas kunjungan Anda!'}
               </p>
 
-              {/* Barcode Asli Code 128 */}
+              {/* QR Code Asli Nota */}
               <div className="pt-3 pb-1 flex flex-col items-center justify-center">
-                <div className="w-full max-w-[280px] p-2 bg-white text-black flex items-center justify-center rounded-xl border border-neutral-200/90 shadow-2xs print:border-none print:shadow-none print:p-0">
-                  <Barcode value={currentOrder.invoiceNumber} />
-                </div>
+                <QRCodeComponent value={currentOrder.invoiceNumber} size={115} />
                 <span className="text-[10px] tracking-widest text-black mt-1.5 font-mono font-bold">
                   {currentOrder.invoiceNumber}
+                </span>
+                <span className="text-[9px] text-neutral-500 font-sans mt-0.5 print:hidden">
+                  Scan QR untuk cek / buka nota ini
                 </span>
               </div>
             </div>
@@ -447,7 +448,7 @@ export const NotaView: React.FC<NotaViewProps> = ({
             value={search}
             onChange={e => setSearch(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            placeholder="Cari / scan no. nota..."
+            placeholder="Cari / scan QR no. nota..."
             className={`w-full text-xs rounded-xl pl-8 pr-10 py-2 border outline-none ${
               isDark
                 ? 'bg-neutral-800 text-white placeholder-neutral-500 border-neutral-700/80 focus:border-neutral-500'
@@ -457,8 +458,8 @@ export const NotaView: React.FC<NotaViewProps> = ({
           <button
             type="button"
             onClick={() => setIsScannerOpen(true)}
-            title="Pindai Barcode / QR dengan Kamera"
-            aria-label="Pindai Barcode"
+            title="Pindai QR Code dengan Kamera"
+            aria-label="Pindai QR Code"
             className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg active:scale-95 transition-colors ${
               isDark
                 ? 'text-neutral-400 hover:text-white hover:bg-neutral-700'

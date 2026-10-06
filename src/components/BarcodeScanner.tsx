@@ -124,10 +124,9 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           {
             fps: 15,
             qrbox: (viewfinderWidth, viewfinderHeight) => {
-              // Bidang pemindaian yang luas (90% lebar, 65% tinggi) agar barcode mudah terbaca
-              const width = Math.floor(viewfinderWidth * 0.9);
-              const height = Math.floor(viewfinderHeight * 0.65);
-              return { width, height };
+              // Bidang pemindaian bujur sangkar optimal untuk QR Code
+              const edge = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.72);
+              return { width: edge, height: edge };
             },
             aspectRatio: 1.0,
           },
@@ -224,11 +223,11 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             <Camera className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-xs font-bold tracking-tight text-white">Pindai Barcode Nota</h3>
+            <h3 className="text-xs font-bold tracking-tight text-white">Pindai QR Code Nota</h3>
             <p className="text-[10px] text-neutral-400">
               {cameras.length > 0 && cameras[selectedCameraIndex]
                 ? cameras[selectedCameraIndex].label || 'Kamera Belakang'
-                : 'Mendeteksi Code 128 / QR Code'}
+                : 'Mendeteksi QR Code'}
             </p>
           </div>
         </div>
@@ -267,19 +266,19 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         {/* Viewfinder Guide Overlay */}
         {!error && !isInitializing && !detectedCode && (
           <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-            <div className="relative w-[85%] h-44 border-2 border-emerald-400/90 rounded-2xl shadow-[0_0_25px_rgba(52,211,153,0.35)] bg-emerald-400/5">
+            <div className="relative w-56 h-56 border-2 border-emerald-400/90 rounded-2xl shadow-[0_0_25px_rgba(52,211,153,0.35)] bg-emerald-400/5">
               {/* Corner markers */}
-              <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
-              <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
-              <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
-              <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
+              <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+              <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+              <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
 
               {/* Scanning Laser Line */}
               <div className="w-full h-[2px] bg-emerald-400 shadow-[0_0_10px_#34d399] absolute top-1/2 -translate-y-1/2 animate-pulse" />
             </div>
 
             <p className="text-[11px] text-white/90 bg-black/60 px-3 py-1 rounded-full mt-3 font-medium backdrop-blur-xs">
-              Arahkan garis hijau ke barcode nota
+              Arahkan kamera ke QR Code nota
             </p>
           </div>
         )}
@@ -290,7 +289,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
             <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/40 mb-3 animate-bounce">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <p className="text-xs font-bold text-emerald-200">Barcode Terdeteksi!</p>
+            <p className="text-xs font-bold text-emerald-200">QR Code Terdeteksi!</p>
             <p className="text-sm font-mono font-bold text-white mt-1 bg-black/40 px-3 py-1 rounded-lg">
               {detectedCode}
             </p>
