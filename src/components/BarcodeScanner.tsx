@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Camera, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, Camera, AlertCircle, RefreshCw, SwitchCamera, CheckCircle2 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
 interface BarcodeScannerProps {
@@ -9,25 +9,70 @@ interface BarcodeScannerProps {
   theme?: 'light' | 'dark';
 }
 
+/**
+ * Pemutar nada konfirmasi pemindaian berbasis Web Audio API
+ */
+const playBeepSound = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, ctx.currentTime);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+  } catch {
+    // abaikan jika audio otomatis dibatasi peramban
+  }
+};
+
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   isOpen,
   onClose,
   onScan,
-  theme = 'light',
 }) => {
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const nativeStreamRef = useRef<MediaStream | null>(null);
+  const [detectedCode, setDetectedCode] = useState<string | null>(null);
+  const [cameras, setCameras] = useState<{ id: string; label: string }[]>([]);
+  const [selectedCameraIndex, setSelectedCameraIndex] = useState<number>(0);
+
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
-  const scannerContainerId = 'barcode-scanner-region';
+  const scannerContainerId = 'barcode-scanner-viewport';
   const hasDetectedRef = useRef(false);
+
+  // Ambil daftar kamera saat scanner dibuka
+  useEffect(() => {
+    if (!isOpen) return;
+
+    Html5Qrcode.getCameras()
+      .then(devices => {
+        if (devices && devices.length > 0) {
+          setCameras(devices);
+          // Cari kamera belakang secara otomatis
+          const backIdx = devices.findIndex(d =>
+            /back|rear|environment|belakang/i.test(d.label)
+          );
+          setSelectedCameraIndex(backIdx >= 0 ? backIdx : 0);
+        }
+      })
+      .catch(err => {
+        console.warn('Gagal memuat daftar kamera:', err);
+      });
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
-      cleanupScanner();
+      stopAndCleanup();
       setError(null);
       setIsInitializing(false);
+      setDetectedCode(null);
       hasDetectedRef.current = false;
       return;
     }
@@ -35,113 +80,80 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
     hasDetectedRef.current = false;
     setIsInitializing(true);
     setError(null);
+    setDetectedCode(null);
 
     let isMounted = true;
 
-    const handleSuccess = (decodedText: string) => {
-      if (hasDetectedRef.current) return;
-      hasDetectedRef.current = true;
-      const clean = decodedText.trim();
-      cleanupScanner();
-      onScan(clean);
-    };
-
     const startScanner = async () => {
-      // 1. Coba Native window.BarcodeDetector jika tersedia
-      const hasNative = typeof window !== 'undefined' && 'BarcodeDetector' in window;
-
-      if (hasNative) {
-        try {
-          const supportedFormats = await (window as any).BarcodeDetector.getSupportedFormats().catch(() => []);
-          const formatsToUse = ['code_128', 'qr_code'].filter(f => supportedFormats.includes(f));
-          
-          if (formatsToUse.length > 0) {
-            const stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              },
-            });
-
-            if (!isMounted) {
-              stream.getTracks().forEach(t => t.stop());
-              return;
-            }
-
-            nativeStreamRef.current = stream;
-
-            if (videoRef.current) {
-              videoRef.current.srcObject = stream;
-              await videoRef.current.play().catch(() => {});
-            }
-
-            const barcodeDetector = new (window as any).BarcodeDetector({ formats: formatsToUse });
-            let animFrameId: number;
-
-            const detectFrame = async () => {
-              if (!isMounted || hasDetectedRef.current || !videoRef.current) return;
-
-              if (videoRef.current.readyState >= 2) {
-                try {
-                  const barcodes = await barcodeDetector.detect(videoRef.current);
-                  if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
-                    handleSuccess(barcodes[0].rawValue);
-                    return;
-                  }
-                } catch {
-                  // ignore frame error
-                }
-              }
-
-              if (isMounted && !hasDetectedRef.current) {
-                animFrameId = requestAnimationFrame(detectFrame);
-              }
-            };
-
-            setIsInitializing(false);
-            animFrameId = requestAnimationFrame(detectFrame);
-            return;
-          }
-        } catch (nativeErr: any) {
-          console.warn('BarcodeDetector gagal atau tidak diizinkan, beralih ke html5-qrcode fallback:', nativeErr);
-          if (nativeStreamRef.current) {
-            nativeStreamRef.current.getTracks().forEach(t => t.stop());
-            nativeStreamRef.current = null;
-          }
-        }
-      }
-
-      // 2. Fallback: Gunakan html5-qrcode library
       try {
+        // Hentikan scanner aktif sebelumnya jika ada
+        if (html5QrCodeRef.current) {
+          try {
+            if (html5QrCodeRef.current.isScanning) {
+              await html5QrCodeRef.current.stop();
+            }
+            html5QrCodeRef.current.clear();
+          } catch {}
+          html5QrCodeRef.current = null;
+        }
+
         const qrCode = new Html5Qrcode(scannerContainerId, {
           formatsToSupport: [
             Html5QrcodeSupportedFormats.CODE_128,
             Html5QrcodeSupportedFormats.QR_CODE,
             Html5QrcodeSupportedFormats.CODE_39,
             Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.UPC_A,
           ],
           verbose: false,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true,
+          },
         });
 
         html5QrCodeRef.current = qrCode;
 
+        // Tentukan konfigurasi kamera: gunakan cameraId jika sudah terdeteksi, atau facingMode environment
+        const cameraConfig =
+          cameras.length > 0 && cameras[selectedCameraIndex]
+            ? cameras[selectedCameraIndex].id
+            : { facingMode: 'environment' };
+
         await qrCode.start(
-          { facingMode: 'environment' },
+          cameraConfig,
           {
-            fps: 12,
+            fps: 15,
             qrbox: (viewfinderWidth, viewfinderHeight) => {
-              const width = Math.min(viewfinderWidth * 0.85, 300);
-              const height = Math.min(viewfinderHeight * 0.45, 160);
+              // Bidang pemindaian yang luas (90% lebar, 65% tinggi) agar barcode mudah terbaca
+              const width = Math.floor(viewfinderWidth * 0.9);
+              const height = Math.floor(viewfinderHeight * 0.65);
               return { width, height };
             },
             aspectRatio: 1.0,
           },
           (decodedText) => {
-            handleSuccess(decodedText);
+            if (hasDetectedRef.current) return;
+            hasDetectedRef.current = true;
+
+            const cleanCode = decodedText.trim();
+            setDetectedCode(cleanCode);
+
+            // Suara & getaran konfirmasi
+            playBeepSound();
+            if (navigator.vibrate) {
+              try {
+                navigator.vibrate([70, 40, 70]);
+              } catch {}
+            }
+
+            // Beri jeda 400ms agar animasi sukses terlihat oleh pengguna
+            setTimeout(() => {
+              stopAndCleanup();
+              onScan(cleanCode);
+            }, 400);
           },
           () => {
-            // Abaikan kesalahan deteksi per-frame
+            // Frame error diabaikan
           }
         );
 
@@ -149,17 +161,17 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           setIsInitializing(false);
         }
       } catch (err: any) {
-        console.error('Html5Qrcode error:', err);
+        console.error('Gagal memulai scanner:', err);
         if (!isMounted) return;
 
         setIsInitializing(false);
         const errMsg = err?.message || String(err);
         if (errMsg.includes('NotAllowedError') || errMsg.includes('Permission')) {
-          setError('Izin akses kamera ditolak. Silakan izinkan kamera di peramban (browser) Anda.');
+          setError('Izin akses kamera ditolak. Silakan izinkan kamera di browser Anda.');
         } else if (errMsg.includes('NotFoundError') || errMsg.includes('DevicesNotFoundError')) {
-          setError('Kamera tidak ditemukan pada perangkat ini.');
+          setError('Kamera tidak ditemukan pada perangkat Anda.');
         } else {
-          setError('Gagal mengaktifkan kamera. Pastikan kamera tidak sedang dipakai aplikasi lain.');
+          setError('Kamera tidak dapat diakses atau sedang digunakan aplikasi lain.');
         }
       }
     };
@@ -168,30 +180,23 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
 
     return () => {
       isMounted = false;
-      cleanupScanner();
+      stopAndCleanup();
     };
-  }, [isOpen]);
+  }, [isOpen, selectedCameraIndex, cameras.length]);
 
-  const cleanupScanner = () => {
-    // Hentikan native video stream
-    if (nativeStreamRef.current) {
-      nativeStreamRef.current.getTracks().forEach(t => t.stop());
-      nativeStreamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-
-    // Hentikan html5-qrcode
+  const stopAndCleanup = () => {
     if (html5QrCodeRef.current) {
       try {
         if (html5QrCodeRef.current.isScanning) {
-          html5QrCodeRef.current.stop().catch(() => {}).finally(() => {
-            try {
-              html5QrCodeRef.current?.clear();
-            } catch {}
-            html5QrCodeRef.current = null;
-          });
+          html5QrCodeRef.current
+            .stop()
+            .catch(() => {})
+            .finally(() => {
+              try {
+                html5QrCodeRef.current?.clear();
+              } catch {}
+              html5QrCodeRef.current = null;
+            });
         } else {
           html5QrCodeRef.current.clear();
           html5QrCodeRef.current = null;
@@ -200,6 +205,12 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
         html5QrCodeRef.current = null;
       }
     }
+  };
+
+  const handleSwitchCamera = () => {
+    if (cameras.length <= 1) return;
+    const nextIndex = (selectedCameraIndex + 1) % cameras.length;
+    setSelectedCameraIndex(nextIndex);
   };
 
   if (!isOpen) return null;
@@ -214,48 +225,75 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
           </div>
           <div>
             <h3 className="text-xs font-bold tracking-tight text-white">Pindai Barcode Nota</h3>
-            <p className="text-[10px] text-neutral-400">Code 128 / QR Code</p>
+            <p className="text-[10px] text-neutral-400">
+              {cameras.length > 0 && cameras[selectedCameraIndex]
+                ? cameras[selectedCameraIndex].label || 'Kamera Belakang'
+                : 'Mendeteksi Code 128 / QR Code'}
+            </p>
           </div>
         </div>
 
-        <button
-          onClick={onClose}
-          aria-label="Tutup pemindai"
-          className="w-8 h-8 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white flex items-center justify-center active:scale-95 transition-all"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1.5">
+          {cameras.length > 1 && (
+            <button
+              onClick={handleSwitchCamera}
+              title="Ganti Lensa Kamera"
+              aria-label="Ganti Kamera"
+              className="px-2.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white flex items-center gap-1 text-[11px] font-medium active:scale-95 transition-all"
+            >
+              <SwitchCamera className="w-3.5 h-3.5" />
+              <span>Ganti Lensa</span>
+            </button>
+          )}
+
+          <button
+            onClick={onClose}
+            aria-label="Tutup pemindai"
+            className="w-8 h-8 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white flex items-center justify-center active:scale-95 transition-all"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Main Scanner Viewport */}
-      <div className="relative w-full max-w-sm flex-1 flex flex-col items-center justify-center my-4 overflow-hidden rounded-2xl bg-neutral-900 border border-neutral-800">
-        {/* Native video preview (used when BarcodeDetector is active) */}
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          className={`w-full h-full object-cover ${nativeStreamRef.current ? 'block' : 'hidden'}`}
-        />
-
-        {/* Html5Qrcode DOM mount (used when html5-qrcode is active) */}
+      <div className="relative w-full max-w-sm flex-1 flex flex-col items-center justify-center my-3 overflow-hidden rounded-2xl bg-neutral-900 border border-neutral-800 shadow-2xl">
+        {/* DOM Mount untuk Html5Qrcode */}
         <div
           id={scannerContainerId}
-          className={`w-full h-full ${!nativeStreamRef.current ? 'block' : 'hidden'}`}
+          className="w-full h-full overflow-hidden [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
         />
 
-        {/* Viewfinder Target Overlay (Guide Box) */}
-        {!error && !isInitializing && (
-          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-            <div className="relative w-64 h-36 border-2 border-emerald-400/90 rounded-xl shadow-[0_0_20px_rgba(52,211,153,0.3)] bg-emerald-400/5">
+        {/* Viewfinder Guide Overlay */}
+        {!error && !isInitializing && !detectedCode && (
+          <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+            <div className="relative w-[85%] h-44 border-2 border-emerald-400/90 rounded-2xl shadow-[0_0_25px_rgba(52,211,153,0.35)] bg-emerald-400/5">
               {/* Corner markers */}
-              <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
-              <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
-              <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
+              <div className="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg" />
+              <div className="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg" />
+              <div className="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-emerald-400 rounded-bl-lg" />
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-emerald-400 rounded-br-lg" />
 
               {/* Scanning Laser Line */}
-              <div className="w-full h-[2px] bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399] absolute top-1/2 -translate-y-1/2" />
+              <div className="w-full h-[2px] bg-emerald-400 shadow-[0_0_10px_#34d399] absolute top-1/2 -translate-y-1/2 animate-pulse" />
             </div>
+
+            <p className="text-[11px] text-white/90 bg-black/60 px-3 py-1 rounded-full mt-3 font-medium backdrop-blur-xs">
+              Arahkan garis hijau ke barcode nota
+            </p>
+          </div>
+        )}
+
+        {/* Notifikasi Berhasil Terdeteksi */}
+        {detectedCode && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-emerald-950/85 backdrop-blur-xs z-30 p-4 text-center animate-fade-in">
+            <div className="w-14 h-14 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/40 mb-3 animate-bounce">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <p className="text-xs font-bold text-emerald-200">Barcode Terdeteksi!</p>
+            <p className="text-sm font-mono font-bold text-white mt-1 bg-black/40 px-3 py-1 rounded-lg">
+              {detectedCode}
+            </p>
           </div>
         )}
 
@@ -278,13 +316,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
               <p className="text-[11px] text-neutral-400 leading-relaxed max-w-xs">{error}</p>
             </div>
             <button
-              onClick={() => {
-                setError(null);
-                setIsInitializing(true);
-                cleanupScanner();
-                // re-run by toggling isOpen briefly
-                onClose();
-              }}
+              onClick={onClose}
               className="mt-2 px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold rounded-xl active:scale-95 transition-all"
             >
               Tutup Pemindai
@@ -294,10 +326,10 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
       </div>
 
       {/* Bottom Instructions / Actions */}
-      <div className="w-full max-w-md pb-4 text-center z-10 space-y-3">
-        <p className="text-xs text-neutral-400">
-          Arahkan kamera ke barcode nota (Code 128 / QR)
-        </p>
+      <div className="w-full max-w-md pb-3 text-center z-10 space-y-2.5">
+        <div className="text-[11px] text-neutral-400 bg-neutral-900/80 px-3 py-2 rounded-xl border border-neutral-800">
+          💡 <span className="text-neutral-300">Tips:</span> Jaga jarak kamera sekitar 10-20 cm dan pastikan barcode mendapat cahaya yang cukup.
+        </div>
         <button
           onClick={onClose}
           className="w-full py-2.5 px-4 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold rounded-xl active:scale-95 transition-all"

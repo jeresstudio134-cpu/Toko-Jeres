@@ -9,6 +9,9 @@ import {
   Search,
   Receipt,
   ScanLine,
+  CheckCircle2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { Barcode } from './Barcode';
 import { BarcodeScanner } from './BarcodeScanner';
@@ -35,20 +38,37 @@ export const NotaView: React.FC<NotaViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [viewFormat, setViewFormat] = useState<'thermal' | 'invoice'>('thermal');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scanToast, setScanToast] = useState<{
+    type: 'success' | 'notFound';
+    message: string;
+  } | null>(null);
 
   const currentOrder = activeOrder || (orders.length > 0 ? orders[0] : null);
 
   const handleBarcodeScanned = (scannedCode: string) => {
     setIsScannerOpen(false);
     const clean = scannedCode.trim();
+    if (!clean) return;
+
     const matched = orders.find(
       o => o.invoiceNumber.toLowerCase().trim() === clean.toLowerCase()
     );
+
     if (matched) {
       onSelectOrder(matched);
       setSearch('');
+      setScanToast({
+        type: 'success',
+        message: `Nota ${matched.invoiceNumber} (${matched.customerName}) berhasil ditemukan!`,
+      });
+      setTimeout(() => setScanToast(null), 4000);
     } else {
       setSearch(clean);
+      setScanToast({
+        type: 'notFound',
+        message: `Nota "${clean}" tidak ditemukan di daftar transaksi.`,
+      });
+      setTimeout(() => setScanToast(null), 4500);
     }
   };
 
@@ -62,6 +82,17 @@ export const NotaView: React.FC<NotaViewProps> = ({
         if (matched) {
           onSelectOrder(matched);
           setSearch('');
+          setScanToast({
+            type: 'success',
+            message: `Nota ${matched.invoiceNumber} (${matched.customerName}) berhasil ditemukan!`,
+          });
+          setTimeout(() => setScanToast(null), 4000);
+        } else {
+          setScanToast({
+            type: 'notFound',
+            message: `Nota "${search.trim()}" tidak ditemukan.`,
+          });
+          setTimeout(() => setScanToast(null), 4000);
         }
       }
     }
@@ -118,6 +149,33 @@ export const NotaView: React.FC<NotaViewProps> = ({
           + Order Baru
         </button>
       </div>
+
+      {/* Toast Notifikasi Hasil Scan / Cari Barcode */}
+      {scanToast && (
+        <div
+          className={`print:hidden p-3 rounded-xl border flex items-center justify-between text-xs transition-all shadow-sm ${
+            scanToast.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300'
+          }`}
+        >
+          <div className="flex items-center gap-2 pr-2">
+            {scanToast.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            )}
+            <span className="font-semibold leading-tight">{scanToast.message}</span>
+          </div>
+          <button
+            onClick={() => setScanToast(null)}
+            aria-label="Tutup notifikasi"
+            className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-neutral-500 flex-shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {currentOrder ? (
         <div className="space-y-3.5 print:space-y-0">
@@ -344,11 +402,11 @@ export const NotaView: React.FC<NotaViewProps> = ({
               </p>
 
               {/* Barcode Asli Code 128 */}
-              <div className="pt-2 flex flex-col items-center justify-center">
-                <div className="w-full max-w-[260px] px-2 py-0.5 bg-white text-black flex items-center justify-center overflow-hidden">
+              <div className="pt-3 pb-1 flex flex-col items-center justify-center">
+                <div className="w-full max-w-[280px] p-2 bg-white text-black flex items-center justify-center rounded-xl border border-neutral-200/90 shadow-2xs print:border-none print:shadow-none print:p-0">
                   <Barcode value={currentOrder.invoiceNumber} />
                 </div>
-                <span className="text-[9px] tracking-widest text-neutral-700 mt-1 font-mono font-medium">
+                <span className="text-[10px] tracking-widest text-black mt-1.5 font-mono font-bold">
                   {currentOrder.invoiceNumber}
                 </span>
               </div>
