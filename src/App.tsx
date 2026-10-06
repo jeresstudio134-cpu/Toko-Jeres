@@ -331,21 +331,22 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col items-center justify-start antialiased transition-colors duration-150 ${
+      className={`min-h-screen print:min-h-0 print:block flex flex-col items-center justify-start antialiased transition-colors duration-150 ${
         isDark
           ? 'bg-neutral-950 text-neutral-100 selection:bg-neutral-800'
           : 'bg-[#fafafa] text-neutral-900 selection:bg-neutral-200'
       }`}
     >
       <div
-        className={`w-full max-w-lg min-h-screen flex flex-col transition-colors duration-150 ${
+        className={`w-full max-w-lg min-h-screen print:min-h-0 print:max-w-none print:block flex flex-col transition-colors duration-150 ${
           isDark
             ? 'bg-neutral-950 sm:border-x sm:border-neutral-800/80 shadow-2xl shadow-black/40'
             : 'bg-white sm:border-x sm:border-neutral-200/70 sm:shadow-[0_0_40px_rgba(0,0,0,0.03)]'
         }`}
       >
-        <Header
-          settings={settings}
+        <div className="print:hidden">
+          <Header
+            settings={settings}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           theme={theme}
@@ -353,8 +354,9 @@ export default function App() {
           isAdminAuthenticated={isAdminAuthenticated}
           onLockAdmin={() => handleSetAdminAuth(false)}
         />
+        </div>
 
-        <main className="flex-1 w-full overflow-y-auto no-scrollbar">
+        <main className="flex-1 w-full overflow-y-auto no-scrollbar print:overflow-visible print:block">
           <Suspense
             fallback={
               <div className="p-6 text-center text-xs text-neutral-400 font-mono">Memuat...</div>
@@ -441,8 +443,9 @@ export default function App() {
           </Suspense>
         </main>
 
-        <BottomNav
-          activeTab={activeTab}
+        <div className="print:hidden">
+          <BottomNav
+            activeTab={activeTab}
           setActiveTab={setActiveTab}
           cartCount={totalCartCount}
           theme={theme}
