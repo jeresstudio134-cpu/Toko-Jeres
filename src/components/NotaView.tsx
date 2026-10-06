@@ -8,7 +8,10 @@ import {
   Check,
   Search,
   Receipt,
+  ScanLine,
 } from 'lucide-react';
+import { Barcode } from './Barcode';
+import { BarcodeScanner } from './BarcodeScanner';
 
 interface NotaViewProps {
   orders: Order[];
@@ -31,8 +34,38 @@ export const NotaView: React.FC<NotaViewProps> = ({
   const [search, setSearch] = useState('');
   const [copied, setCopied] = useState(false);
   const [viewFormat, setViewFormat] = useState<'thermal' | 'invoice'>('thermal');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const currentOrder = activeOrder || (orders.length > 0 ? orders[0] : null);
+
+  const handleBarcodeScanned = (scannedCode: string) => {
+    setIsScannerOpen(false);
+    const clean = scannedCode.trim();
+    const matched = orders.find(
+      o => o.invoiceNumber.toLowerCase().trim() === clean.toLowerCase()
+    );
+    if (matched) {
+      onSelectOrder(matched);
+      setSearch('');
+    } else {
+      setSearch(clean);
+    }
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const query = search.trim().toLowerCase();
+      if (query) {
+        const matched = orders.find(
+          o => o.invoiceNumber.toLowerCase().trim() === query
+        );
+        if (matched) {
+          onSelectOrder(matched);
+          setSearch('');
+        }
+      }
+    }
+  };
 
   const filteredOrders = orders.filter(
     o =>
@@ -310,18 +343,12 @@ export const NotaView: React.FC<NotaViewProps> = ({
                 {settings.receiptFooter || 'Terima kasih atas kunjungan Anda!'}
               </p>
 
-              {/* Barcode visual placeholder */}
-              <div className="pt-2 flex flex-col items-center justify-center opacity-85">
-                <div className="h-7 w-48 flex items-center justify-between gap-[2px] px-2 overflow-hidden">
-                  {Array.from({ length: 42 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="h-full bg-black"
-                      style={{ width: i % 3 === 0 ? '3px' : i % 5 === 0 ? '1px' : '2px' }}
-                    />
-                  ))}
+              {/* Barcode Asli Code 128 */}
+              <div className="pt-2 flex flex-col items-center justify-center">
+                <div className="w-full max-w-[260px] px-2 py-0.5 bg-white text-black flex items-center justify-center overflow-hidden">
+                  <Barcode value={currentOrder.invoiceNumber} />
                 </div>
-                <span className="text-[9px] tracking-widest text-neutral-600 mt-1 font-mono">
+                <span className="text-[9px] tracking-widest text-neutral-700 mt-1 font-mono font-medium">
                   {currentOrder.invoiceNumber}
                 </span>
               </div>
@@ -354,20 +381,34 @@ export const NotaView: React.FC<NotaViewProps> = ({
           </span>
         </div>
 
-        {/* Search */}
+        {/* Search & Scan */}
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Cari no. nota / nama pembeli..."
-            className={`w-full text-xs rounded-xl pl-8 pr-3 py-2 border outline-none ${
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Cari / scan no. nota..."
+            className={`w-full text-xs rounded-xl pl-8 pr-10 py-2 border outline-none ${
               isDark
-                ? 'bg-neutral-800 text-white placeholder-neutral-500 border-neutral-700/80'
-                : 'bg-neutral-50 text-neutral-900 placeholder-neutral-400 border-neutral-200'
+                ? 'bg-neutral-800 text-white placeholder-neutral-500 border-neutral-700/80 focus:border-neutral-500'
+                : 'bg-neutral-50 text-neutral-900 placeholder-neutral-400 border-neutral-200 focus:border-neutral-400'
             }`}
           />
+          <button
+            type="button"
+            onClick={() => setIsScannerOpen(true)}
+            title="Pindai Barcode / QR dengan Kamera"
+            aria-label="Pindai Barcode"
+            className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg active:scale-95 transition-colors ${
+              isDark
+                ? 'text-neutral-400 hover:text-white hover:bg-neutral-700'
+                : 'text-neutral-500 hover:text-neutral-900 hover:bg-neutral-200/80'
+            }`}
+          >
+            <ScanLine className="w-4 h-4" />
+          </button>
         </div>
 
         {/* List of orders */}
@@ -422,6 +463,14 @@ export const NotaView: React.FC<NotaViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Kamera Barcode Scanner Modal */}
+      <BarcodeScanner
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScan={handleBarcodeScanned}
+        theme={theme}
+      />
     </div>
   );
 };

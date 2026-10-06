@@ -71,7 +71,7 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
   const [address, setAddress] = useState(settings.address);
   const [phone, setPhone] = useState(settings.phone);
   const [receiptFooter, setReceiptFooter] = useState(settings.receiptFooter);
-  const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm' | 'A4' | 'full'>(settings.paperWidth);
+  const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>(settings.paperWidth);
   const [enableTax, setEnableTax] = useState(settings.enableTax);
   const [taxPercent, setTaxPercent] = useState(settings.taxPercent);
   const [cloudName, setCloudName] = useState(settings.cloudinaryCloudName || '');
@@ -823,7 +823,7 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
             </h3>
 
             <div className="flex items-center justify-between text-xs">
-              <span className="text-neutral-600 dark:text-neutral-300">Format Kertas Cetak:</span>
+              <span className="text-neutral-600 dark:text-neutral-300">Lebar Kertas Printer Thermal:</span>
               <div
                 className={`flex p-0.5 rounded-lg border ${
                   isDark ? 'bg-neutral-800 border-neutral-700' : 'bg-neutral-100 border-neutral-200'
@@ -831,16 +831,16 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
               >
                 <button
                   type="button"
-                  onClick={() => setPaperWidth('A4')}
+                  onClick={() => setPaperWidth('58mm')}
                   className={`px-2.5 py-1 rounded text-[11px] font-bold ${
-                    paperWidth === 'A4' || paperWidth === 'full'
+                    paperWidth === '58mm'
                       ? isDark
                         ? 'bg-white text-neutral-950'
                         : 'bg-neutral-900 text-white'
                       : 'text-neutral-500'
                   }`}
                 >
-                  A4 (Full)
+                  58mm
                 </button>
                 <button
                   type="button"
@@ -854,19 +854,6 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
                   }`}
                 >
                   80mm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaperWidth('58mm')}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold ${
-                    paperWidth === '58mm'
-                      ? isDark
-                        ? 'bg-white text-neutral-950'
-                        : 'bg-neutral-900 text-white'
-                      : 'text-neutral-500'
-                  }`}
-                >
-                  58mm
                 </button>
               </div>
             </div>

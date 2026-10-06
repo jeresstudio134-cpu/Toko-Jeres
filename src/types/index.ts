@@ -80,7 +80,7 @@ export interface StoreSettings {
   address: string;
   phone: string;
   receiptFooter: string;
-  paperWidth: '58mm' | '80mm' | 'A4' | 'full';
+  paperWidth: '58mm' | '80mm';
   taxPercent: number;
   enableTax: boolean;
   currency: string;

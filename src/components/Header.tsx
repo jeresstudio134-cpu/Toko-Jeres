@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header
-      className={`no-print print:hidden sticky top-0 z-30 px-4 py-3 select-none transition-colors border-b ${
+      className={`sticky top-0 z-30 px-4 py-3 select-none transition-colors border-b ${
         isDark
           ? 'bg-neutral-900 border-neutral-800'
           : 'bg-white border-neutral-200/90 shadow-[0_1px_3px_rgba(0,0,0,0.02)]'
