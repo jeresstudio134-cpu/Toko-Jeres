@@ -259,7 +259,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   /**
    * Start Html5Qrcode.
    */
-const startScanner = async () => {
+const startScanner = async (preferredCameraId?: string | null) => {
   if (!isOpen) return;
 
   await stopAndCleanup();
@@ -319,7 +319,12 @@ const startScanner = async () => {
 
     // Kalau kamera belakang ditemukan gunakan itu.
     // Kalau tidak, gunakan kamera terakhir sebagai fallback.
+    const chosenCamera = preferredCameraId
+      ? cameraList.find(camera => camera.id === preferredCameraId)
+      : undefined;
+
     const selectedCamera =
+      chosenCamera ||
       rearCamera ||
       cameraList[cameraList.length - 1];
 
@@ -473,7 +478,6 @@ const startScanner = async () => {
       setDetectedCode(null);
       setCameras([]);
       setCurrentCameraId(null);
-      setManualCode('');
 
       return () => {
         isMountedRef.current =
@@ -502,11 +506,8 @@ const startScanner = async () => {
 
       stopAndCleanup();
     };
-  }, [
-    isOpen,
-    startScanner,
-    stopAndCleanup,
-  ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   /**
    * Ganti kamera.
