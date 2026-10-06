@@ -169,8 +169,8 @@ export const NotaView: React.FC<NotaViewProps> = ({
           <div
             id="printable-receipt"className={`mx-auto bg-white text-neutral-900 rounded-2xl shadow-xl border border-neutral-200/90 overflow-hidden font-mono text-xs transition-all print:w-full print:max-w-none print:mx-0 print:rounded-none print:border-0 print:shadow-none ${
               viewFormat === 'thermal'
-                ? 'max-w-[340px] p-5 print:[zoom:2]'
-                : 'w-full p-6 print:[zoom:1.7]'
+                  ? 'max-w-[340px] p-5 print:text-[9pt]'
+                  : 'w-full p-6 print:text-[10pt]'
             }`}
           >
             {/* Store Header */}
