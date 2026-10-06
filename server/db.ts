@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { neon } from '@neondatabase/serverless';
 import { drizzle, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { eq, asc, desc, sql } from 'drizzle-orm';
@@ -248,12 +250,69 @@ const DEFAULT_ORDERS: Order[] = [
   },
 ];
 
+interface LocalData {
+  settings: StoreSettings;
+  products: Product[];
+  customers: Customer[];
+  orders: Order[];
+}
+
 // ======================================================
 // DATABASE
 // ======================================================
 export class ServerDatabase {
   private ready: Promise<boolean> | null = null;
   private lastError: string | null = null;
+  private localData: LocalData | null = null;
+  private localFilePath = path.resolve(process.cwd(), 'data', 'database.json');
+
+  private loadLocalData(): LocalData {
+    if (this.localData) return this.localData;
+    try {
+      if (fs.existsSync(this.localFilePath)) {
+        const content = fs.readFileSync(this.localFilePath, 'utf-8');
+        const parsed = JSON.parse(content);
+        this.localData = {
+          settings: parsed.settings ? { ...DEFAULT_SETTINGS, ...parsed.settings } : { ...DEFAULT_SETTINGS },
+          products: Array.isArray(parsed.products) ? parsed.products : [...DEFAULT_PRODUCTS],
+          customers: Array.isArray(parsed.customers) ? parsed.customers : [...DEFAULT_CUSTOMERS],
+          orders: Array.isArray(parsed.orders) ? parsed.orders : [...DEFAULT_ORDERS],
+        };
+        return this.localData;
+      }
+    } catch (err) {
+      console.warn('Gagal membaca data/database.json, fallback ke default:', err);
+    }
+    this.localData = {
+      settings: { ...DEFAULT_SETTINGS },
+      products: [...DEFAULT_PRODUCTS],
+      customers: [...DEFAULT_CUSTOMERS],
+      orders: [...DEFAULT_ORDERS],
+    };
+    return this.localData;
+  }
+
+  private async saveLocalData(): Promise<void> {
+    if (!this.localData) return;
+    try {
+      const dir = path.dirname(this.localFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      await fs.promises.writeFile(this.localFilePath, JSON.stringify(this.localData, null, 2), 'utf-8');
+    } catch (err) {
+      console.warn('Gagal menyimpan ke data/database.json:', err);
+    }
+  }
+
+  private async getDbSafe(): Promise<Db | null> {
+    if (!process.env.DATABASE_URL?.trim()) return null;
+    try {
+      return await this.db();
+    } catch {
+      return null;
+    }
+  }
 
   /** Ambil koneksi Neon. Kalau gagal, lempar error yang jelas (tanpa data palsu). */
   private async db(): Promise<Db> {
@@ -278,16 +337,26 @@ export class ServerDatabase {
   }
 
   public async status() {
-    try {
-      await this.db();
-      return { connected: true, hasDatabaseUrl: true, error: null as string | null };
-    } catch (e: any) {
-      return {
-        connected: false,
-        hasDatabaseUrl: !!process.env.DATABASE_URL?.trim(),
-        error: this.lastError ?? e.message,
-      };
+    const hasUrl = !!process.env.DATABASE_URL?.trim();
+    if (hasUrl) {
+      try {
+        await this.db();
+        return { connected: true, hasDatabaseUrl: true, usingLocalData: false, error: null as string | null };
+      } catch (e: any) {
+        return {
+          connected: true,
+          hasDatabaseUrl: true,
+          usingLocalData: true,
+          error: this.lastError ?? e.message,
+        };
+      }
     }
+    return {
+      connected: true,
+      hasDatabaseUrl: false,
+      usingLocalData: true,
+      error: null as string | null,
+    };
   }
 
   // -------------------------
@@ -435,60 +504,119 @@ export class ServerDatabase {
   // Products
   // -------------------------
   public async getProducts(): Promise<Product[]> {
-    const db = await this.db();
-    const rows = await db.select().from(t.products).orderBy(asc(t.products.seq));
-    return rows.map(toProduct);
+    const db = await this.getDbSafe();
+    if (db) {
+      const rows = await db.select().from(t.products).orderBy(asc(t.products.seq));
+      return rows.map(toProduct);
+    }
+    const local = this.loadLocalData();
+    return [...local.products];
   }
 
   public async getProductById(id: string): Promise<Product | undefined> {
-    const db = await this.db();
-    const rows = await db.select().from(t.products).where(eq(t.products.id, id));
-    return rows[0] ? toProduct(rows[0]) : undefined;
+    const db = await this.getDbSafe();
+    if (db) {
+      const rows = await db.select().from(t.products).where(eq(t.products.id, id));
+      return rows[0] ? toProduct(rows[0]) : undefined;
+    }
+    const local = this.loadLocalData();
+    return local.products.find(p => p.id === id);
   }
 
   public async createProduct(product: Omit<Product, 'id'> & { id?: string }): Promise<Product> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
+    if (db) {
+      const newProduct: Product = {
+        ...product,
+        id: product.id || `prod-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        isActive: product.isActive !== undefined ? product.isActive : true,
+      };
+      const [row] = await db.insert(t.products).values({ id: newProduct.id, ...productValues(newProduct) }).returning();
+      return toProduct(row);
+    }
+    const local = this.loadLocalData();
     const newProduct: Product = {
       ...product,
       id: product.id || `prod-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       isActive: product.isActive !== undefined ? product.isActive : true,
     };
-    const [row] = await db.insert(t.products).values({ id: newProduct.id, ...productValues(newProduct) }).returning();
-    return toProduct(row);
+    local.products.push(newProduct);
+    await this.saveLocalData();
+    return newProduct;
   }
 
   public async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
-    const db = await this.db();
-    const current = await this.getProductById(id);
-    if (!current) return null;
-    const next: Product = { ...current, ...updates, id };
-    await db.update(t.products).set(productValues(next)).where(eq(t.products.id, id));
+    const db = await this.getDbSafe();
+    if (db) {
+      const current = await this.getProductById(id);
+      if (!current) return null;
+      const next: Product = { ...current, ...updates, id };
+      await db.update(t.products).set(productValues(next)).where(eq(t.products.id, id));
+      return next;
+    }
+    const local = this.loadLocalData();
+    const idx = local.products.findIndex(p => p.id === id);
+    if (idx === -1) return null;
+    const next: Product = { ...local.products[idx], ...updates, id };
+    local.products[idx] = next;
+    await this.saveLocalData();
     return next;
   }
 
   public async deleteProduct(id: string): Promise<boolean> {
-    const db = await this.db();
-    const r = await db.delete(t.products).where(eq(t.products.id, id)).returning({ id: t.products.id });
-    return r.length > 0;
+    const db = await this.getDbSafe();
+    if (db) {
+      const r = await db.delete(t.products).where(eq(t.products.id, id)).returning({ id: t.products.id });
+      return r.length > 0;
+    }
+    const local = this.loadLocalData();
+    const prevLen = local.products.length;
+    local.products = local.products.filter(p => p.id !== id);
+    if (local.products.length !== prevLen) {
+      await this.saveLocalData();
+      return true;
+    }
+    return false;
   }
 
   // -------------------------
   // Customers (CRM otomatis)
   // -------------------------
   public async getCustomers(): Promise<Customer[]> {
-    const db = await this.db();
-    const rows = await db.select().from(t.customers).orderBy(desc(t.customers.seq));
-    return rows.map(toCustomer);
+    const db = await this.getDbSafe();
+    if (db) {
+      const rows = await db.select().from(t.customers).orderBy(desc(t.customers.seq));
+      return rows.map(toCustomer);
+    }
+    const local = this.loadLocalData();
+    return [...local.customers];
   }
 
   public async getCustomerById(id: string): Promise<Customer | undefined> {
-    const db = await this.db();
-    const rows = await db.select().from(t.customers).where(eq(t.customers.id, id));
-    return rows[0] ? toCustomer(rows[0]) : undefined;
+    const db = await this.getDbSafe();
+    if (db) {
+      const rows = await db.select().from(t.customers).where(eq(t.customers.id, id));
+      return rows[0] ? toCustomer(rows[0]) : undefined;
+    }
+    const local = this.loadLocalData();
+    return local.customers.find(c => c.id === id);
   }
 
   public async createCustomer(cust: Omit<Customer, 'id'> & { id?: string }): Promise<Customer> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
+    if (db) {
+      const newCust: Customer = {
+        ...cust,
+        id: cust.id || `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        firstVisit: cust.firstVisit || new Date().toISOString(),
+        lastVisit: cust.lastVisit || new Date().toISOString(),
+        totalSpent: cust.totalSpent || 0,
+        ordersCount: cust.ordersCount || 0,
+      };
+      const [row] = await db.insert(t.customers).values({ id: newCust.id, ...customerValues(newCust) }).returning();
+      return toCustomer(row);
+    }
+    const local = this.loadLocalData();
     const newCust: Customer = {
       ...cust,
       id: cust.id || `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -497,23 +625,43 @@ export class ServerDatabase {
       totalSpent: cust.totalSpent || 0,
       ordersCount: cust.ordersCount || 0,
     };
-    const [row] = await db.insert(t.customers).values({ id: newCust.id, ...customerValues(newCust) }).returning();
-    return toCustomer(row);
+    local.customers.unshift(newCust);
+    await this.saveLocalData();
+    return newCust;
   }
 
   public async updateCustomer(id: string, updates: Partial<Customer>): Promise<Customer | null> {
-    const db = await this.db();
-    const current = await this.getCustomerById(id);
-    if (!current) return null;
-    const next: Customer = { ...current, ...updates, id };
-    await db.update(t.customers).set(customerValues(next)).where(eq(t.customers.id, id));
+    const db = await this.getDbSafe();
+    if (db) {
+      const current = await this.getCustomerById(id);
+      if (!current) return null;
+      const next: Customer = { ...current, ...updates, id };
+      await db.update(t.customers).set(customerValues(next)).where(eq(t.customers.id, id));
+      return next;
+    }
+    const local = this.loadLocalData();
+    const idx = local.customers.findIndex(c => c.id === id);
+    if (idx === -1) return null;
+    const next: Customer = { ...local.customers[idx], ...updates, id };
+    local.customers[idx] = next;
+    await this.saveLocalData();
     return next;
   }
 
   public async deleteCustomer(id: string): Promise<boolean> {
-    const db = await this.db();
-    const r = await db.delete(t.customers).where(eq(t.customers.id, id)).returning({ id: t.customers.id });
-    return r.length > 0;
+    const db = await this.getDbSafe();
+    if (db) {
+      const r = await db.delete(t.customers).where(eq(t.customers.id, id)).returning({ id: t.customers.id });
+      return r.length > 0;
+    }
+    const local = this.loadLocalData();
+    const prevLen = local.customers.length;
+    local.customers = local.customers.filter(c => c.id !== id);
+    if (local.customers.length !== prevLen) {
+      await this.saveLocalData();
+      return true;
+    }
+    return false;
   }
 
   public async verifyAdminPin(pin: unknown): Promise<boolean> {
@@ -522,81 +670,131 @@ export class ServerDatabase {
   }
 
   public async recordCustomerFromOrder(name: string, phone: string, total: number): Promise<Customer> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
     const cleanPhone = phone.replace(/[^0-9+]/g, '').trim();
     const cleanName = name.trim() || 'Pelanggan Umum';
     const now = new Date();
 
-    let found: typeof t.customers.$inferSelect | undefined;
+    if (db) {
+      let found: typeof t.customers.$inferSelect | undefined;
 
-    // 1. Cari lewat nomor HP
-    if (cleanPhone) {
-      const r = await db.select().from(t.customers)
-        .where(sql`regexp_replace(COALESCE(${t.customers.phone}, ''), '[^0-9+]', '', 'g') = ${cleanPhone}`)
-        .orderBy(asc(t.customers.seq)).limit(1);
-      found = r[0];
-    }
-    // 2. Cari lewat nama (pelanggan umum tanpa HP memakai satu baris yang sama)
-    if (!found && (cleanName !== 'Pelanggan Umum' || !cleanPhone)) {
-      const r = await db.select().from(t.customers)
-        .where(sql`LOWER(${t.customers.name}) = LOWER(${cleanName})`)
-        .orderBy(asc(t.customers.seq)).limit(1);
-      found = r[0];
-    }
+      // 1. Cari lewat nomor HP
+      if (cleanPhone) {
+        const r = await db.select().from(t.customers)
+          .where(sql`regexp_replace(COALESCE(${t.customers.phone}, ''), '[^0-9+]', '', 'g') = ${cleanPhone}`)
+          .orderBy(asc(t.customers.seq)).limit(1);
+        found = r[0];
+      }
+      // 2. Cari lewat nama (pelanggan umum tanpa HP memakai satu baris yang sama)
+      if (!found && (cleanName !== 'Pelanggan Umum' || !cleanPhone)) {
+        const r = await db.select().from(t.customers)
+          .where(sql`LOWER(${t.customers.name}) = LOWER(${cleanName})`)
+          .orderBy(asc(t.customers.seq)).limit(1);
+        found = r[0];
+      }
 
-    if (found) {
-      const patch: Partial<typeof t.customers.$inferInsert> = {
-        totalSpent: sql`${t.customers.totalSpent} + ${total}` as any,
-        ordersCount: sql`${t.customers.ordersCount} + 1` as any,
+      if (found) {
+        const patch: Partial<typeof t.customers.$inferInsert> = {
+          totalSpent: sql`${t.customers.totalSpent} + ${total}` as any,
+          ordersCount: sql`${t.customers.ordersCount} + 1` as any,
+          lastVisit: now,
+        };
+        if (cleanName !== 'Pelanggan Umum' && (!found.name || found.name === 'Pelanggan Umum')) patch.name = cleanName;
+        if (cleanPhone && !found.phone) patch.phone = cleanPhone;
+        const [row] = await db.update(t.customers).set(patch).where(eq(t.customers.id, found.id)).returning();
+        return toCustomer(row);
+      }
+
+      const [row] = await db.insert(t.customers).values({
+        id: `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name: cleanName,
+        phone: cleanPhone || '',
+        totalSpent: String(total),
+        ordersCount: 1,
+        firstVisit: now,
         lastVisit: now,
-      };
-      if (cleanName !== 'Pelanggan Umum' && (!found.name || found.name === 'Pelanggan Umum')) patch.name = cleanName;
-      if (cleanPhone && !found.phone) patch.phone = cleanPhone;
-      const [row] = await db.update(t.customers).set(patch).where(eq(t.customers.id, found.id)).returning();
+        notes: 'Pencatatan otomatis dari pesanan kasir',
+      }).returning();
       return toCustomer(row);
     }
 
-    const [row] = await db.insert(t.customers).values({
+    // Local fallback
+    const local = this.loadLocalData();
+    let foundIndex = -1;
+    if (cleanPhone) {
+      foundIndex = local.customers.findIndex(c => (c.phone || '').replace(/[^0-9+]/g, '') === cleanPhone);
+    }
+    if (foundIndex === -1 && (cleanName !== 'Pelanggan Umum' || !cleanPhone)) {
+      foundIndex = local.customers.findIndex(c => (c.name || '').toLowerCase() === cleanName.toLowerCase());
+    }
+
+    if (foundIndex >= 0) {
+      const existing = local.customers[foundIndex];
+      existing.totalSpent = (existing.totalSpent || 0) + total;
+      existing.ordersCount = (existing.ordersCount || 0) + 1;
+      existing.lastVisit = now.toISOString();
+      if (cleanName !== 'Pelanggan Umum' && (!existing.name || existing.name === 'Pelanggan Umum')) {
+        existing.name = cleanName;
+      }
+      if (cleanPhone && !existing.phone) {
+        existing.phone = cleanPhone;
+      }
+      local.customers[foundIndex] = existing;
+      await this.saveLocalData();
+      return existing;
+    }
+
+    const newCust: Customer = {
       id: `cust-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       name: cleanName,
       phone: cleanPhone || '',
-      totalSpent: String(total),
+      totalSpent: total,
       ordersCount: 1,
-      firstVisit: now,
-      lastVisit: now,
+      firstVisit: now.toISOString(),
+      lastVisit: now.toISOString(),
       notes: 'Pencatatan otomatis dari pesanan kasir',
-    }).returning();
-    return toCustomer(row);
+    };
+    local.customers.unshift(newCust);
+    await this.saveLocalData();
+    return newCust;
   }
 
   // -------------------------
   // Orders
   // -------------------------
   public async getOrders(): Promise<Order[]> {
-    const db = await this.db();
-    const orders = await db.select().from(t.orders).orderBy(desc(t.orders.seq));
-    const items = await db.select().from(t.orderItems).orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
-    const byOrder = new Map<string, (typeof t.orderItems.$inferSelect)[]>();
-    for (const it of items) {
-      const list = byOrder.get(it.orderId) || [];
-      list.push(it);
-      byOrder.set(it.orderId, list);
+    const db = await this.getDbSafe();
+    if (db) {
+      const orders = await db.select().from(t.orders).orderBy(desc(t.orders.seq));
+      const items = await db.select().from(t.orderItems).orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
+      const byOrder = new Map<string, (typeof t.orderItems.$inferSelect)[]>();
+      for (const it of items) {
+        const list = byOrder.get(it.orderId) || [];
+        list.push(it);
+        byOrder.set(it.orderId, list);
+      }
+      return orders.map(o => toOrder(o, byOrder.get(o.id) || []));
     }
-    return orders.map(o => toOrder(o, byOrder.get(o.id) || []));
+    const local = this.loadLocalData();
+    return [...local.orders];
   }
 
   public async getOrderById(id: string): Promise<Order | undefined> {
-    const db = await this.db();
-    const o = await db.select().from(t.orders).where(eq(t.orders.id, id));
-    if (!o[0]) return undefined;
-    const items = await db.select().from(t.orderItems)
-      .where(eq(t.orderItems.orderId, id))
-      .orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
-    return toOrder(o[0], items);
+    const db = await this.getDbSafe();
+    if (db) {
+      const o = await db.select().from(t.orders).where(eq(t.orders.id, id));
+      if (!o[0]) return undefined;
+      const items = await db.select().from(t.orderItems)
+        .where(eq(t.orderItems.orderId, id))
+        .orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
+      return toOrder(o[0], items);
+    }
+    const local = this.loadLocalData();
+    return local.orders.find(o => o.id === id);
   }
 
   public async createOrder(orderInput: Order): Promise<{ order: Order; customer: Customer }> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
 
     // 1. Catat customer otomatis
     const customer = await this.recordCustomerFromOrder(
@@ -611,21 +809,35 @@ export class ServerDatabase {
       createdAt: orderInput.createdAt || new Date().toISOString(),
     };
 
-    // 2. Simpan order + item + potong stok sekaligus (satu paket, semua berhasil atau semua batal)
-    const ops: any[] = [db.insert(t.orders).values({ id: finalizedOrder.id, ...orderValues(finalizedOrder) })];
-    if (finalizedOrder.items.length > 0) {
-      ops.push(db.insert(t.orderItems).values(finalizedOrder.items.map((it, i) => itemValues(finalizedOrder.id, it, i))));
+    if (db) {
+      // Simpan order + item + potong stok sekaligus
+      const ops: any[] = [db.insert(t.orders).values({ id: finalizedOrder.id, ...orderValues(finalizedOrder) })];
+      if (finalizedOrder.items.length > 0) {
+        ops.push(db.insert(t.orderItems).values(finalizedOrder.items.map((it, i) => itemValues(finalizedOrder.id, it, i))));
+      }
+      for (const it of finalizedOrder.items) {
+        if (!it.productId) continue;
+        ops.push(
+          db.update(t.products)
+            .set({ stock: sql`GREATEST(0, ${t.products.stock} - ${it.quantity})` as any })
+            .where(eq(t.products.id, it.productId))
+        );
+      }
+      await db.batch(ops as [any, ...any[]]);
+      return { order: finalizedOrder, customer };
     }
+
+    // Local fallback
+    const local = this.loadLocalData();
     for (const it of finalizedOrder.items) {
       if (!it.productId) continue;
-      ops.push(
-        db.update(t.products)
-          .set({ stock: sql`GREATEST(0, ${t.products.stock} - ${it.quantity})` as any })
-          .where(eq(t.products.id, it.productId))
-      );
+      const prod = local.products.find(p => p.id === it.productId);
+      if (prod) {
+        prod.stock = Math.max(0, prod.stock - it.quantity);
+      }
     }
-    await db.batch(ops as [any, ...any[]]);
-
+    local.orders.unshift(finalizedOrder);
+    await this.saveLocalData();
     return { order: finalizedOrder, customer };
   }
 
@@ -635,7 +847,7 @@ export class ServerDatabase {
       Pick<Order, 'customerName' | 'customerPhone' | 'paymentMethod' | 'items' | 'discount' | 'tax' | 'notes'>
     >
   ): Promise<Order | null> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
     const current = await this.getOrderById(id);
     if (!current) return null;
 
@@ -666,83 +878,134 @@ export class ServerDatabase {
     }
 
     const diff = next.total - current.total;
-    const ops: any[] = [];
 
+    if (db) {
+      const ops: any[] = [];
+
+      if (updates.items !== undefined) {
+        // Kembalikan stok lama, kurangi stok baru
+        const delta = new Map<string, number>();
+        for (const it of current.items) delta.set(it.productId, (delta.get(it.productId) || 0) + it.quantity);
+        for (const it of updates.items) delta.set(it.productId, (delta.get(it.productId) || 0) - it.quantity);
+        for (const [productId, d] of delta.entries()) {
+          if (d === 0 || !productId) continue;
+          ops.push(
+            db.update(t.products)
+              .set({ stock: sql`GREATEST(0, ${t.products.stock} + ${d})` as any })
+              .where(eq(t.products.id, productId))
+          );
+        }
+        ops.push(db.delete(t.orderItems).where(eq(t.orderItems.orderId, id)));
+        ops.push(db.insert(t.orderItems).values(next.items.map((it, i) => itemValues(id, it, i))));
+      }
+
+      if (diff !== 0 && current.customerId) {
+        ops.push(
+          db.update(t.customers)
+            .set({ totalSpent: sql`GREATEST(0, ${t.customers.totalSpent} + ${diff})` as any })
+            .where(eq(t.customers.id, current.customerId))
+        );
+      }
+
+      ops.push(
+        db.update(t.orders).set({
+          customerName: next.customerName,
+          customerPhone: next.customerPhone ?? null,
+          subtotal: String(next.subtotal),
+          discount: String(next.discount || 0),
+          tax: String(next.tax || 0),
+          total: String(next.total),
+          paymentMethod: next.paymentMethod,
+          cashChange: str(next.cashChange),
+          notes: next.notes ?? null,
+        }).where(eq(t.orders.id, id))
+      );
+
+      await db.batch(ops as [any, ...any[]]);
+      return next;
+    }
+
+    // Local fallback
+    const local = this.loadLocalData();
     if (updates.items !== undefined) {
-      // Kembalikan stok lama, kurangi stok baru
       const delta = new Map<string, number>();
       for (const it of current.items) delta.set(it.productId, (delta.get(it.productId) || 0) + it.quantity);
       for (const it of updates.items) delta.set(it.productId, (delta.get(it.productId) || 0) - it.quantity);
       for (const [productId, d] of delta.entries()) {
         if (d === 0 || !productId) continue;
-        ops.push(
-          db.update(t.products)
-            .set({ stock: sql`GREATEST(0, ${t.products.stock} + ${d})` as any })
-            .where(eq(t.products.id, productId))
-        );
+        const prod = local.products.find(p => p.id === productId);
+        if (prod) prod.stock = Math.max(0, prod.stock + d);
       }
-      ops.push(db.delete(t.orderItems).where(eq(t.orderItems.orderId, id)));
-      ops.push(db.insert(t.orderItems).values(next.items.map((it, i) => itemValues(id, it, i))));
     }
 
     if (diff !== 0 && current.customerId) {
-      ops.push(
-        db.update(t.customers)
-          .set({ totalSpent: sql`GREATEST(0, ${t.customers.totalSpent} + ${diff})` as any })
-          .where(eq(t.customers.id, current.customerId))
-      );
+      const cust = local.customers.find(c => c.id === current.customerId);
+      if (cust) cust.totalSpent = Math.max(0, (cust.totalSpent || 0) + diff);
     }
 
-    ops.push(
-      db.update(t.orders).set({
-        customerName: next.customerName,
-        customerPhone: next.customerPhone ?? null,
-        subtotal: String(next.subtotal),
-        discount: String(next.discount || 0),
-        tax: String(next.tax || 0),
-        total: String(next.total),
-        paymentMethod: next.paymentMethod,
-        cashChange: str(next.cashChange),
-        notes: next.notes ?? null,
-      }).where(eq(t.orders.id, id))
-    );
-
-    await db.batch(ops as [any, ...any[]]);
+    const ordIdx = local.orders.findIndex(o => o.id === id);
+    if (ordIdx >= 0) {
+      local.orders[ordIdx] = next;
+    }
+    await this.saveLocalData();
     return next;
   }
 
   public async deleteOrder(id: string): Promise<boolean> {
-    const db = await this.db();
-    const r = await db.delete(t.orders).where(eq(t.orders.id, id)).returning({ id: t.orders.id });
-    return r.length > 0;
+    const db = await this.getDbSafe();
+    if (db) {
+      const r = await db.delete(t.orders).where(eq(t.orders.id, id)).returning({ id: t.orders.id });
+      return r.length > 0;
+    }
+    const local = this.loadLocalData();
+    const prevLen = local.orders.length;
+    local.orders = local.orders.filter(o => o.id !== id);
+    if (local.orders.length !== prevLen) {
+      await this.saveLocalData();
+      return true;
+    }
+    return false;
   }
 
   // -------------------------
   // Settings
   // -------------------------
   public async getSettings(): Promise<StoreSettings> {
-    const db = await this.db();
-    const r = await db.select().from(t.storeSettings).where(eq(t.storeSettings.id, 1));
-    return r[0] ? toSettings(r[0]) : { ...DEFAULT_SETTINGS, neonDatabaseUrl: '' };
+    const db = await this.getDbSafe();
+    if (db) {
+      const r = await db.select().from(t.storeSettings).where(eq(t.storeSettings.id, 1));
+      return r[0] ? toSettings(r[0]) : { ...DEFAULT_SETTINGS, neonDatabaseUrl: '' };
+    }
+    const local = this.loadLocalData();
+    return { ...local.settings, neonDatabaseUrl: '' };
   }
 
   public async updateSettings(settings: Partial<StoreSettings>): Promise<StoreSettings> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
     const { neonDatabaseUrl, ...safe } = settings; // URL database tidak pernah disimpan dari browser
-    const current = await this.getSettings();
-    const next: StoreSettings = { ...current, ...safe, neonDatabaseUrl: '' };
-    await this.saveSettings(db, next);
-    return next;
+    if (db) {
+      const current = await this.getSettings();
+      const next: StoreSettings = { ...current, ...safe, neonDatabaseUrl: '' };
+      await this.saveSettings(db, next);
+      return next;
+    }
+    const local = this.loadLocalData();
+    local.settings = { ...local.settings, ...safe, neonDatabaseUrl: '' };
+    await this.saveLocalData();
+    return { ...local.settings, neonDatabaseUrl: '' };
   }
 
   // -------------------------
   // Neon (tombol "Tes Koneksi" / "Sinkronkan" di Setelan)
-  // Sekarang selalu memakai DATABASE_URL di server, bukan URL dari browser.
   // -------------------------
-  public async testNeonConnection(_url?: string): Promise<{ success: boolean; message: string; timestamp?: string }> {
+  public async testNeonConnection(url?: string): Promise<{ success: boolean; message: string; timestamp?: string }> {
+    const targetUrl = url?.trim() || process.env.DATABASE_URL?.trim();
+    if (!targetUrl) {
+      return { success: false, message: 'DATABASE_URL belum dikonfigurasi.' };
+    }
     try {
-      const db = await this.db();
-      const r: any = await db.execute(sql`SELECT NOW() AS current_time`);
+      const testDb = drizzle(neon(targetUrl));
+      const r: any = await testDb.execute(sql`SELECT NOW() AS current_time`);
       const rows = r?.rows ?? r;
       return {
         success: true,
@@ -754,11 +1017,23 @@ export class ServerDatabase {
     }
   }
 
-  public async syncToNeon(_url?: string): Promise<{ success: boolean; message: string }> {
-    const s = await this.status();
-    return s.connected
-      ? { success: true, message: 'Data sudah tersimpan langsung di Neon. Sinkronisasi manual tidak diperlukan.' }
-      : { success: false, message: s.error || 'Neon tidak terhubung.' };
+  public async syncToNeon(url?: string): Promise<{ success: boolean; message: string }> {
+    const targetUrl = url?.trim() || process.env.DATABASE_URL?.trim();
+    if (!targetUrl) {
+      return { success: false, message: 'DATABASE_URL belum dikonfigurasi.' };
+    }
+    try {
+      const targetDb = drizzle(neon(targetUrl));
+      await this.setup(targetDb);
+      const local = this.loadLocalData();
+      await this.saveSettings(targetDb, local.settings);
+      for (const p of local.products) await this.insertProduct(targetDb, p);
+      for (const c of local.customers) await this.insertCustomer(targetDb, c);
+      for (const o of local.orders) await this.insertOrder(targetDb, o);
+      return { success: true, message: 'Sinkronisasi data ke Neon PostgreSQL berhasil!' };
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Gagal sinkronisasi ke Neon.' };
+    }
   }
 
   // -------------------------
@@ -770,38 +1045,63 @@ export class ServerDatabase {
     customers?: Customer[];
     orders?: Order[];
   }): Promise<{ success: boolean; message: string; counts: { products: number; customers: number; orders: number } }> {
-    const db = await this.db();
+    const db = await this.getDbSafe();
+    if (db) {
+      if (backupData.store) await this.updateSettings(backupData.store);
 
-    if (backupData.store) await this.updateSettings(backupData.store);
-
-    if (Array.isArray(backupData.products)) {
-      for (const p of backupData.products) {
-        const v = productValues(p);
-        await db.insert(t.products).values({ id: p.id, ...v }).onConflictDoUpdate({ target: t.products.id, set: v });
+      if (Array.isArray(backupData.products)) {
+        for (const p of backupData.products) {
+          const v = productValues(p);
+          await db.insert(t.products).values({ id: p.id, ...v }).onConflictDoUpdate({ target: t.products.id, set: v });
+        }
       }
+      if (Array.isArray(backupData.customers)) {
+        for (const c of backupData.customers) {
+          const v = customerValues(c);
+          await db.insert(t.customers).values({ id: c.id, ...v }).onConflictDoUpdate({ target: t.customers.id, set: v });
+        }
+      }
+      if (Array.isArray(backupData.orders)) {
+        for (const o of backupData.orders) await this.insertOrder(db, o);
+      }
+
+      const count = async (table: any) => {
+        const r = await db.select({ c: sql<number>`count(*)::int` }).from(table);
+        return Number(r[0]?.c || 0);
+      };
+
+      return {
+        success: true,
+        message: 'Database berhasil dipulihkan dari file cadangan!',
+        counts: {
+          products: await count(t.products),
+          customers: await count(t.customers),
+          orders: await count(t.orders),
+        },
+      };
+    }
+
+    const local = this.loadLocalData();
+    if (backupData.store) {
+      local.settings = { ...local.settings, ...backupData.store, neonDatabaseUrl: '' };
+    }
+    if (Array.isArray(backupData.products)) {
+      local.products = backupData.products;
     }
     if (Array.isArray(backupData.customers)) {
-      for (const c of backupData.customers) {
-        const v = customerValues(c);
-        await db.insert(t.customers).values({ id: c.id, ...v }).onConflictDoUpdate({ target: t.customers.id, set: v });
-      }
+      local.customers = backupData.customers;
     }
     if (Array.isArray(backupData.orders)) {
-      for (const o of backupData.orders) await this.insertOrder(db, o);
+      local.orders = backupData.orders;
     }
-
-    const count = async (table: any) => {
-      const r = await db.select({ c: sql<number>`count(*)::int` }).from(table);
-      return Number(r[0]?.c || 0);
-    };
-
+    await this.saveLocalData();
     return {
       success: true,
       message: 'Database berhasil dipulihkan dari file cadangan!',
       counts: {
-        products: await count(t.products),
-        customers: await count(t.customers),
-        orders: await count(t.orders),
+        products: local.products.length,
+        customers: local.customers.length,
+        orders: local.orders.length,
       },
     };
   }

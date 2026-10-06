@@ -22,7 +22,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, c
 
   return (
     <nav
-      className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md transition-colors border-t pb-[env(safe-area-inset-bottom,0px)] ${
+      className={`no-print print:hidden fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md transition-colors border-t pb-[env(safe-area-inset-bottom,0px)] ${
         isDark
           ? 'bg-neutral-900/95 border-neutral-800'
           : 'bg-white/95 border-neutral-200/80 shadow-[0_-2px_10px_rgba(0,0,0,0.03)]'

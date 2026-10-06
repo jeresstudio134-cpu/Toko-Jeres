@@ -1,15 +1,9 @@
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import * as schema from "./db/schema.ts";
+import * as schema from "./schema.ts";
 
 const databaseUrl = process.env.DATABASE_URL;
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL belum dikonfigurasi");
-}
-
-const sql = neon(databaseUrl);
-
-export const db = drizzle(sql, { schema });
+export const db = databaseUrl ? drizzle(neon(databaseUrl), { schema }) : null;
 export { schema };
