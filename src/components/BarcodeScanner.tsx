@@ -4,7 +4,7 @@ import {
   Camera,
   AlertCircle,
   RefreshCw,
-  SwitchCamera,
+
   CheckCircle2,
   Image as ImageIcon,
   ShieldAlert,
@@ -259,7 +259,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
   /**
    * Start Html5Qrcode.
    */
-const startScanner = async (preferredCameraId?: string | null) => {
+const startScanner = async (_cameraId?: string | null) => {
   if (!isOpen) return;
 
   await stopAndCleanup();
@@ -271,145 +271,53 @@ const startScanner = async (preferredCameraId?: string | null) => {
 
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error(
-        'Browser tidak mendukung akses kamera.'
-      );
+      throw new Error('Browser tidak mendukung akses kamera.');
     }
 
-    // 1. Minta permission kamera terlebih dahulu
-    const stream =
-      await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false,
-      });
+    // Tidak ada pilihan lensa: selalu kamera belakang utama
+    setCameras([]);
+    setCurrentCameraId(null);
 
-    // Setelah permission berhasil, matikan stream sementara
-    stream.getTracks().forEach(track => {
-      track.stop();
+    const scanner = new Html5Qrcode(scannerContainerId, {
+      formatsToSupport: [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.UPC_A,
+      ],
+      verbose: false,
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true,
+      },
     });
-
-    // 2. Ambil semua kamera
-    const devices =
-      await Html5Qrcode.getCameras();
-
-    if (!devices || devices.length === 0) {
-      throw new Error(
-        'Kamera tidak ditemukan.'
-      );
-    }
-
-    const cameraList = devices.map(
-      (device, index) => ({
-        id: device.id,
-        label:
-          device.label ||
-          `Kamera ${index + 1}`,
-      })
-    );
-
-    setCameras(cameraList);
-
-    // 3. Cari kamera belakang
-    const rearCamera =
-      cameraList.find(camera =>
-        /back|rear|environment|belakang|trase|main/i.test(
-          camera.label
-        )
-      );
-
-    // Kalau kamera belakang ditemukan gunakan itu.
-    // Kalau tidak, gunakan kamera terakhir sebagai fallback.
-    const chosenCamera = preferredCameraId
-      ? cameraList.find(camera => camera.id === preferredCameraId)
-      : undefined;
-
-    const selectedCamera =
-      chosenCamera ||
-      rearCamera ||
-      cameraList[cameraList.length - 1];
-
-    setCurrentCameraId(
-      selectedCamera.id
-    );
-
-    console.log(
-      'Kamera tersedia:',
-      cameraList
-    );
-
-    console.log(
-      'Kamera dipilih:',
-      selectedCamera
-    );
-
-    // 4. Buat scanner
-    const scanner =
-      new Html5Qrcode(
-        scannerContainerId,
-        {
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.QR_CODE,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.UPC_A,
-          ],
-          verbose: false,
-          experimentalFeatures: {
-            useBarCodeDetectorIfSupported: true,
-          },
-        }
-      );
 
     html5QrCodeRef.current = scanner;
 
-    // 5. START DENGAN DEVICE ID KAMERA BELAKANG
+    // Kamera dinyalakan satu kali, langsung kamera belakang
     await scanner.start(
-      selectedCamera.id,
+      { facingMode: 'environment' },
       {
         fps: 15,
-
-        qrbox: (
-          viewfinderWidth,
-          viewfinderHeight
-        ) => {
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
           const edge = Math.floor(
-            Math.min(
-              viewfinderWidth,
-              viewfinderHeight
-            ) * 0.75
+            Math.min(viewfinderWidth, viewfinderHeight) * 0.75
           );
-
-          return {
-            width: edge,
-            height: edge,
-          };
+          return { width: edge, height: edge };
         },
-
         aspectRatio: 1,
       },
-
       decodedText => {
-        if (hasDetectedRef.current) {
-          return;
-        }
-
+        if (hasDetectedRef.current) return;
         hasDetectedRef.current = true;
 
-        const cleanCode =
-          decodedText.trim();
-
+        const cleanCode = decodedText.trim();
         setDetectedCode(cleanCode);
-
         playBeepSound();
 
         if (navigator.vibrate) {
           try {
-            navigator.vibrate([
-              70,
-              40,
-              70,
-            ]);
+            navigator.vibrate([70, 40, 70]);
           } catch {}
         }
 
@@ -418,48 +326,20 @@ const startScanner = async (preferredCameraId?: string | null) => {
           onScan(cleanCode);
         }, 400);
       },
-
       () => {
-        // frame gagal dibaca → abaikan
+        // frame gagal dibaca, abaikan
       }
     );
 
     setCameraState('ready');
     setError(null);
-
   } catch (err: any) {
-    console.error(
-      'Gagal membuka kamera:',
-      err
-    );
-
+    console.error('Gagal membuka kamera:', err);
     await stopAndCleanup();
 
-    const name = err?.name || '';
-    const message =
-      String(
-        err?.message || err
-      );
-
-    if (
-      name === 'NotAllowedError' ||
-      message
-        .toLowerCase()
-        .includes('permission')
-    ) {
-      setCameraState('denied');
-
-      setError(
-        'Akses kamera ditolak. Izinkan kamera melalui pengaturan browser.'
-      );
-    } else {
-      setCameraState('error');
-
-      setError(
-        message ||
-          'Kamera tidak dapat digunakan.'
-      );
-    }
+    const result = getCameraErrorMessage(err);
+    setCameraState(result.denied ? 'denied' : 'error');
+    setError(result.message);
   }
 };
 
@@ -509,42 +389,7 @@ const startScanner = async (preferredCameraId?: string | null) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  /**
-   * Ganti kamera.
-   *
-   * Kita restart scanner dengan camera ID baru.
-   */
-  const handleSwitchCamera =
-    async () => {
-      if (cameras.length <= 1)
-        return;
 
-      const currentIndex =
-        cameras.findIndex(
-          (camera) =>
-            camera.id ===
-            currentCameraId
-        );
-
-      const nextIndex =
-        currentIndex < 0
-          ? 0
-          : (currentIndex + 1) %
-            cameras.length;
-
-      const nextCamera =
-        cameras[nextIndex];
-
-      if (!nextCamera) return;
-
-      setCurrentCameraId(
-        nextCamera.id
-      );
-
-      await startScanner(
-        nextCamera.id
-      );
-    };
 
   /**
    * Request permission ulang.
@@ -812,22 +657,7 @@ const startScanner = async (preferredCameraId?: string | null) => {
 
         <div className="flex items-center gap-1.5">
 
-          {cameras.length > 1 &&
-            isCameraReady &&
-            !detectedCode && (
-              <button
-                type="button"
-                onClick={
-                  handleSwitchCamera
-                }
-                title="Ganti Kamera"
-                aria-label="Ganti Kamera"
-                className="px-2.5 py-1.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white flex items-center gap-1 text-[11px] font-medium active:scale-95 transition-all"
-              >
-                <SwitchCamera className="w-3.5 h-3.5" />
-                <span>Lensa</span>
-              </button>
-            )}
+
 
           <button
             type="button"
