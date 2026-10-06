@@ -67,7 +67,7 @@ export const NotaView: React.FC<NotaViewProps> = ({
   return (
     <div className="pb-28 px-4 pt-3 max-w-md mx-auto space-y-4">
       {/* Top Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between print:hidden">
         <div>
           <h2 className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-neutral-900'}`}>
             Nota & Struk Penjualan
@@ -87,10 +87,10 @@ export const NotaView: React.FC<NotaViewProps> = ({
       </div>
 
       {currentOrder ? (
-        <div className="space-y-3.5">
+        <div className="space-y-3.5 print:space-y-0">
           {/* Format Switcher */}
           <div
-            className={`flex items-center justify-between border p-1.5 rounded-xl transition-colors ${
+  className={`print:hidden flex items-center justify-between border p-1.5 rounded-xl transition-colors ${
               isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-xs'
             }`}
           >
@@ -124,7 +124,7 @@ export const NotaView: React.FC<NotaViewProps> = ({
           </div>
 
           {/* Action Toolbar */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2 print:hidden">
             <button
               onClick={handlePrint}
               className={`flex items-center justify-center gap-1.5 py-2.5 px-3 font-bold rounded-xl text-xs active:scale-95 transition-all shadow-sm ${
@@ -167,7 +167,7 @@ export const NotaView: React.FC<NotaViewProps> = ({
 
           {/* THE RECEIPT ELEMENT (Targeted by @media print) */}
           <div
-            id="printable-receipt"className={`mx-auto bg-white text-neutral-900 rounded-2xl shadow-xl border border-neutral-200/90 overflow-hidden font-mono text-xs transition-all print:w-full print:max-w-none print:mx-0 print:rounded-none print:border-0 print:shadow-none ${
+            id="printable-receipt" className={`mx-auto bg-white text-neutral-900 rounded-2xl shadow-xl border border-neutral-200/90 overflow-hidden font-mono text-xs transition-all print:w-full print:max-w-none print:mx-0 print:rounded-none print:border-0 print:shadow-none ${
               viewFormat === 'thermal'
                   ? 'max-w-[340px] p-5 print:text-[9pt]'
                   : 'w-full p-6 print:text-[10pt]'
@@ -341,7 +341,7 @@ export const NotaView: React.FC<NotaViewProps> = ({
 
       {/* History of Past Transactions */}
       <div
-        className={`border rounded-2xl p-3.5 space-y-3 transition-colors ${
+  className={`print:hidden border rounded-2xl p-3.5 space-y-3 transition-colors ${
           isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-xs'
         }`}
       >
