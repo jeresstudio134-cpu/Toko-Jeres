@@ -11,6 +11,9 @@ import {
   ChevronRight,
   Trash2,
   X,
+  MapPin,
+  FileText,
+  Check,
 } from 'lucide-react';
 
 interface CustomerViewProps {
@@ -55,8 +58,12 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   const [newAddress, setNewAddress] = useState('');
   const [newNotes, setNewNotes] = useState('');
 
-  // Editing notes
+  // Editing customer fields
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAddress, setEditAddress] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
 
   // CRM Metrics
   const totalCustomers = customers.length;
@@ -92,22 +99,30 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
   const handleOpenCustomer = (c: Customer) => {
     setSelectedCustomer(c);
+    setEditName(c.name || '');
+    setEditPhone(c.phone || '');
+    setEditAddress(c.address || '');
     setEditNotes(c.notes || '');
   };
 
-  const handleSaveNotes = async () => {
+  const handleSaveCustomer = async () => {
     if (!selectedCustomer || !isAdminAuthenticated) return;
+    setIsSavingCustomer(true);
     const updated: Customer = {
       ...selectedCustomer,
-      notes: editNotes,
+      name: editName.trim() || selectedCustomer.name,
+      phone: editPhone.trim(),
+      address: editAddress.trim() || undefined,
+      notes: editNotes.trim() || undefined,
     };
     const error = await onUpdateCustomer(updated);
+    setIsSavingCustomer(false);
     if (error) {
-      showToast('error', 'Gagal menyimpan catatan: ' + error);
+      showToast('error', 'Gagal menyimpan perubahan: ' + error);
       return;
     }
     setSelectedCustomer(updated);
-    showToast('success', 'Catatan berhasil disimpan');
+    showToast('success', 'Data customer berhasil diperbarui');
   };
 
   // Klik tombol Hapus -> buka kotak konfirmasi
@@ -369,6 +384,22 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                     <span aria-hidden="true">·</span>
                     <span>{formatDateOnly(customer.lastVisit)}</span>
                   </div>
+
+                  {/* Tampilkan Alamat jika ada */}
+                  {customer.address && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 truncate">
+                      <MapPin className="w-3 h-3 text-neutral-400 flex-shrink-0" />
+                      <span className="truncate">{customer.address}</span>
+                    </div>
+                  )}
+
+                  {/* Tampilkan Catatan jika ada */}
+                  {customer.notes && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-neutral-600 dark:text-neutral-300 mt-0.5 truncate">
+                      <FileText className="w-3 h-3 text-amber-500/90 flex-shrink-0" />
+                      <span className="truncate italic">"{customer.notes}"</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -451,61 +482,87 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               </div>
             </div>
 
-            {/* Info details */}
-            <div className="space-y-2 text-xs">
-              {selectedCustomer.phone && (
-                <div className={`flex items-center justify-between p-2.5 rounded-xl border ${isDark ? 'bg-neutral-800/60 border-neutral-800' : 'bg-neutral-50 border-neutral-200'}`}>
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-neutral-500" />
-                    <span className="font-mono font-semibold">{selectedCustomer.phone}</span>
-                  </div>
-                  <a
-                    href={`https://wa.me/${selectedCustomer.phone.replace(/[^0-9]/g, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-xs"
-                  >
-                    <MessageCircle className="w-3 h-3" />
-                    <span>Chat WA</span>
-                  </a>
+            {/* Info details (Bisa diedit) */}
+            <div className="space-y-2.5 text-xs">
+              {/* No WhatsApp / HP (Bisa diedit) */}
+              <div className={`p-2.5 rounded-xl border space-y-1.5 ${isDark ? 'bg-neutral-850 border-neutral-800' : 'bg-neutral-50 border-neutral-200'}`}>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-semibold text-neutral-500 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>No. WhatsApp / HP:</span>
+                  </label>
+                  {editPhone.trim() && (
+                    <a
+                      href={`https://wa.me/${editPhone.replace(/[^0-9]/g, '').startsWith('0') ? '62' + editPhone.replace(/[^0-9]/g, '').slice(1) : editPhone.replace(/[^0-9]/g, '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 shadow-xs transition-colors"
+                    >
+                      <MessageCircle className="w-3 h-3" />
+                      <span>Chat WA</span>
+                    </a>
+                  )}
                 </div>
-              )}
+                <input
+                  type="tel"
+                  value={editPhone}
+                  onChange={e => setEditPhone(e.target.value)}
+                  readOnly={!isAdminAuthenticated}
+                  placeholder="08xxxxxxxxxx"
+                  className={`w-full text-xs font-mono p-2 rounded-lg border outline-none ${
+                    isDark
+                      ? 'bg-neutral-900 text-white border-neutral-700 focus:border-neutral-500'
+                      : 'bg-white text-neutral-900 border-neutral-200 focus:border-neutral-400'
+                  }`}
+                />
+              </div>
 
-              {selectedCustomer.address && (
-                <div className={`p-2.5 rounded-xl border ${isDark ? 'bg-neutral-800/60 border-neutral-800' : 'bg-neutral-50 border-neutral-200'}`}>
-                  <span className="text-[10px] text-neutral-500 block mb-0.5">Alamat:</span>
-                  <p>{selectedCustomer.address}</p>
-                </div>
-              )}
+              {/* Alamat Customer (Bisa diedit) */}
+              <div className={`p-2.5 rounded-xl border space-y-1.5 ${isDark ? 'bg-neutral-850 border-neutral-800' : 'bg-neutral-50 border-neutral-200'}`}>
+                <label className="text-[10px] font-semibold text-neutral-500 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-red-500" />
+                  <span>Alamat:</span>
+                </label>
+                <textarea
+                  value={editAddress}
+                  onChange={e => setEditAddress(e.target.value)}
+                  readOnly={!isAdminAuthenticated}
+                  placeholder="Ketik alamat pelanggan..."
+                  rows={2}
+                  className={`w-full text-xs p-2 rounded-lg border outline-none resize-none ${
+                    isDark
+                      ? 'bg-neutral-900 text-white border-neutral-700 focus:border-neutral-500'
+                      : 'bg-white text-neutral-900 border-neutral-200 focus:border-neutral-400'
+                  }`}
+                />
+              </div>
 
               <div className={`p-2.5 rounded-xl border space-y-1.5 ${isDark ? 'bg-neutral-800/60 border-neutral-800' : 'bg-neutral-50 border-neutral-200'}`}>
-                <span className="text-[10px] text-neutral-500 block">Catatan Pelanggan:</span>
+                <label className="text-[10px] font-semibold text-neutral-500 flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Catatan Pelanggan:</span>
+                </label>
                 <textarea
                   value={editNotes}
                   onChange={e => setEditNotes(e.target.value)}
                   readOnly={!isAdminAuthenticated}
-                  placeholder={
-                    isAdminAuthenticated
-                      ? 'Cth: Suka kopi less sugar, sering beli saat weekend...'
-                      : 'Belum ada catatan'
-                  }
-                  className={`w-full text-xs p-2 rounded-lg border outline-none ${
-                    !isAdminAuthenticated ? 'cursor-default resize-none' : ''
-                  } ${
-                    isDark ? 'bg-neutral-900 text-white border-neutral-700' : 'bg-white text-neutral-900 border-neutral-200'
-                  }`}
+                  placeholder="Cth: Suka kopi less sugar, pelanggan tetap..."
                   rows={2}
+                  className={`w-full text-xs p-2 rounded-lg border outline-none resize-none ${
+                    isDark ? 'bg-neutral-900 text-white border-neutral-700 focus:border-neutral-500' : 'bg-white text-neutral-900 border-neutral-200 focus:border-neutral-400'
+                  }`}
                 />
                 {isAdminAuthenticated ? (
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={handleSaveNotes}
-                      className={`px-3 py-1 font-bold rounded-lg text-[11px] ${
+                      onClick={handleSaveCustomer}
+                      disabled={isSavingCustomer}
+                      className={`px-3 py-1 font-bold rounded-lg text-[11px] disabled:opacity-60 ${
                         isDark ? 'bg-neutral-200 text-neutral-950' : 'bg-neutral-900 text-white'
                       }`}
                     >
-                      Simpan Catatan
+                      {isSavingCustomer ? 'Menyimpan...' : 'Simpan Perubahan'}
                     </button>
 
                     <button

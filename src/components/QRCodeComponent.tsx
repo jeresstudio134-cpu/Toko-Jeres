@@ -5,12 +5,14 @@ interface QRCodeProps {
   value: string;
   size?: number;
   className?: string;
+  errorCorrectionLevel?: 'L' | 'M' | 'Q' | 'H';
 }
 
 export const QRCodeComponent: React.FC<QRCodeProps> = ({
   value,
-  size = 110,
+  size = 120,
   className = '',
+  errorCorrectionLevel,
 }) => {
   const [svgMarkup, setSvgMarkup] = useState<string>('');
 
@@ -21,10 +23,13 @@ export const QRCodeComponent: React.FC<QRCodeProps> = ({
     }
 
     const cleanValue = value.trim();
+    // Gunakan 'L' untuk teks panjang agar kepadatan modul QR tidak terlalu rapat sehingga sangat mudah di-scan oleh kamera HP
+    const ecl = errorCorrectionLevel || (cleanValue.length > 120 ? 'L' : 'M');
+
     QRCode.toString(cleanValue, {
       type: 'svg',
       margin: 1,
-      errorCorrectionLevel: 'M',
+      errorCorrectionLevel: ecl,
       color: {
         dark: '#000000',
         light: '#ffffff',
@@ -32,12 +37,14 @@ export const QRCodeComponent: React.FC<QRCodeProps> = ({
       width: size,
     })
       .then(svg => {
-        setSvgMarkup(svg);
+        // Pastikan SVG responsif dan pas dengan lebar cetak struk
+        const responsiveSvg = svg.replace('<svg ', '<svg class="max-w-full h-auto" ');
+        setSvgMarkup(responsiveSvg);
       })
       .catch(err => {
         console.warn('Gagal merender QR Code:', err);
       });
-  }, [value, size]);
+  }, [value, size, errorCorrectionLevel]);
 
   if (!value || !svgMarkup) return null;
 

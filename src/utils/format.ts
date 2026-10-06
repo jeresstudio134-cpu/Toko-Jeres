@@ -104,3 +104,56 @@ export const getWhatsAppShareUrl = (phone: string, text: string): string => {
   }
   return `https://wa.me/?text=${encodedText}`;
 };
+
+/**
+ * Membuat ringkasan teks nota untuk dimasukkan ke dalam QR Code
+ * Berisi nomor nota, tanggal, nama pelanggan, no wa, metode pembayaran, catatan, total & status (tanpa rincian item)
+ */
+export const generateQRCodeReceiptText = (order: Order, settings: StoreSettings): string => {
+  const line = '--------------------------------';
+
+  return [
+    `=== NOTA RESMI: ${settings.storeName.toUpperCase()} ===`,
+    settings.tagline ? settings.tagline : null,
+    settings.address ? `Alamat   : ${settings.address}` : null,
+    settings.phone ? `Telp/WA  : ${settings.phone}` : null,
+    line,
+    `No. Nota : ${order.invoiceNumber}`,
+    `Tanggal  : ${formatDate(order.createdAt)}`,
+    `Pelanggan: ${order.customerName}`,
+    order.customerPhone ? `No. WA   : ${order.customerPhone}` : null,
+    `Metode   : ${order.paymentMethod.toUpperCase()} (${order.paymentStatus.toUpperCase()})`,
+    order.notes ? `Catatan  : ${order.notes}` : null,
+    line,
+    `Subtotal : ${formatRupiah(order.subtotal)}`,
+    order.discount > 0 ? `Diskon   : -${formatRupiah(order.discount)}` : null,
+    order.tax > 0 ? `Pajak    : +${formatRupiah(order.tax)}` : null,
+    `TOTAL    : ${formatRupiah(order.total)}`,
+    order.paymentMethod === 'tunai' && order.cashGiven
+      ? `Tunai    : ${formatRupiah(order.cashGiven)}\nKembali  : ${formatRupiah(order.cashChange || 0)}`
+      : null,
+    line,
+    settings.receiptFooter || 'Terima kasih atas pesanan Anda!',
+  ]
+    .filter(Boolean)
+    .join('\n');
+};
+
+/**
+ * Mengekstrak nomor nota dari teks hasil scan (bisa nomor nota polos atau teks nota lengkap)
+ */
+export const extractInvoiceNumberFromScannedText = (scannedText: string): string => {
+  const clean = scannedText.trim();
+  // 1. Deteksi pola standar nomor nota INV-YYYYMMDD-XXX atau sejenisnya
+  const invMatch = clean.match(/INV-[A-Za-z0-9-]+/i);
+  if (invMatch) {
+    return invMatch[0].trim();
+  }
+  // 2. Deteksi baris "No. Nota: ..."
+  const lineMatch = clean.match(/no\.?\s*nota\s*:\s*([^\n\r]+)/i);
+  if (lineMatch && lineMatch[1]) {
+    return lineMatch[1].trim();
+  }
+  return clean;
+};
+
