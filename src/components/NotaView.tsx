@@ -5,7 +5,6 @@ import {
   formatDate,
   generateWhatsAppReceiptText,
   getWhatsAppShareUrl,
-  generateQRCodeReceiptText,
   extractInvoiceNumberFromScannedText,
 } from '../utils/format';
 import {
@@ -19,8 +18,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   X,
-  Eye,
-  QrCode,
 } from 'lucide-react';
 import { BarcodeScanner } from './BarcodeScanner';
 import { QRCodeComponent } from './QRCodeComponent';
@@ -47,15 +44,13 @@ export const NotaView: React.FC<NotaViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [viewFormat, setViewFormat] = useState<'thermal' | 'invoice'>('thermal');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [showQRDetailModal, setShowQRDetailModal] = useState(false);
-  const [copiedQRText, setCopiedQRText] = useState(false);
   const [scanToast, setScanToast] = useState<{
     type: 'success' | 'notFound';
     message: string;
   } | null>(null);
 
   const currentOrder = activeOrder || (orders.length > 0 ? orders[0] : null);
-  const qrReceiptText = currentOrder ? generateQRCodeReceiptText(currentOrder, settings) : '';
+  const qrReceiptText = currentOrder ? currentOrder.invoiceNumber : '';
 
   const handleBarcodeScanned = (scannedCode: string) => {
     setIsScannerOpen(false);
@@ -428,23 +423,13 @@ export const NotaView: React.FC<NotaViewProps> = ({
                 {settings.receiptFooter || 'Terima kasih atas kunjungan Anda!'}
               </p>
 
-              {/* QR Code Asli Nota Berisi Data Lengkap */}
+              {/* QR Code - hanya berisi nomor nota */}
               <div className="pt-3 pb-1 flex flex-col items-center justify-center">
                 <QRCodeComponent value={qrReceiptText} size={125} />
+
                 <span className="text-[10px] tracking-widest text-black mt-1.5 font-mono font-bold">
                   {currentOrder.invoiceNumber}
                 </span>
-                <span className="text-[9px] text-neutral-500 font-sans mt-0.5 print:hidden text-center max-w-[220px]">
-                  Scan QR dengan kamera HP untuk baca rincian nota
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowQRDetailModal(true)}
-                  className="mt-1 text-[10px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 font-medium print:hidden flex items-center gap-1 active:scale-95 transition-all"
-                >
-                  <Eye className="w-3 h-3" />
-                  <span>Lihat data isi QR Code</span>
-                </button>
               </div>
             </div>
           </div>
@@ -566,83 +551,7 @@ export const NotaView: React.FC<NotaViewProps> = ({
         theme={theme}
       />
 
-      {/* Modal Detail Isi QR Code */}
-      {showQRDetailModal && currentOrder && (
-        <div className="fixed inset-0 z-50 print:hidden flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div
-            className={`w-full max-w-sm rounded-2xl border p-4 space-y-3 shadow-2xl transition-all ${
-              isDark ? 'bg-neutral-900 border-neutral-800 text-white' : 'bg-white border-neutral-200 text-neutral-900'
-            }`}
-          >
-            <div className="flex items-center justify-between pb-2 border-b border-neutral-200 dark:border-neutral-800">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                  <QrCode className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold leading-tight">Data Isi QR Code Nota</h4>
-                  <p className="text-[10px] text-neutral-500 font-mono">{currentOrder.invoiceNumber}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowQRDetailModal(false)}
-                aria-label="Tutup modal"
-                className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-[11px] text-neutral-500 leading-snug">
-              Berikut teks transaksi lengkap yang tersimpan di dalam QR Code ini. Saat kamera HP atau scanner memindai QR code nota, teks ini langsung terbaca:
-            </p>
-
-            <pre
-              className={`p-3 rounded-xl text-[10px] font-mono whitespace-pre-wrap break-words max-h-64 overflow-y-auto border leading-relaxed ${
-                isDark ? 'bg-neutral-950 border-neutral-800 text-neutral-300' : 'bg-neutral-50 border-neutral-200 text-neutral-800'
-              }`}
-            >
-              {qrReceiptText}
-            </pre>
-
-            <div className="flex gap-2 pt-1">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(qrReceiptText);
-                    setCopiedQRText(true);
-                    setTimeout(() => setCopiedQRText(false), 2000);
-                  } catch {}
-                }}
-                className={`flex-1 py-2 px-3 text-xs font-semibold rounded-xl border flex items-center justify-center gap-1.5 active:scale-95 transition-all ${
-                  isDark ? 'bg-neutral-800 border-neutral-700 text-white' : 'bg-neutral-100 border-neutral-200 text-neutral-800'
-                }`}
-              >
-                {copiedQRText ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    <span className="text-emerald-500 font-bold">Tersalin!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Salin Teks QR</span>
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowQRDetailModal(false)}
-                className="py-2 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 transition-all"
-              >
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      
     </div>
   );
 };
