@@ -73,7 +73,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  
 
   // Rentang tanggal aktif kalau salah satu kolom terisi
   const hasCustomRange = !!(customStart || customEnd);
@@ -504,230 +504,165 @@ const activeFilterCount = useMemo(() => {
 
       
 
-{/* Filter Panel */}
+{/* Filter (selalu tampil) */}
 <div className="space-y-2">
-  {/* Search + toggle filter */}
-  <div className="flex gap-2">
-    <div
-      className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border ${
-        isDark
-          ? 'bg-neutral-900 border-neutral-800'
-          : 'bg-white border-neutral-200 shadow-xs'
+  {/* Cari */}
+  <div
+    className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
+      isDark
+        ? 'bg-neutral-900 border-neutral-800'
+        : 'bg-white border-neutral-200 shadow-xs'
+    }`}
+  >
+    <Search className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+    <input
+      type="text"
+      value={searchQuery}
+      onChange={e => setSearchQuery(e.target.value)}
+      placeholder="Cari no nota / nama..."
+      className={`flex-1 min-w-0 text-xs bg-transparent outline-none ${
+        isDark ? 'text-white placeholder:text-neutral-600' : 'text-neutral-900 placeholder:text-neutral-400'
       }`}
-    >
-      <Search className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-      <input
-        type="text"
-        value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
-        placeholder="Cari no nota / nama..."
-        className={`flex-1 text-xs bg-transparent outline-none ${
-          isDark ? 'text-white placeholder:text-neutral-600' : 'text-neutral-900 placeholder:text-neutral-400'
-        }`}
-      />
-      {searchQuery && (
+    />
+    {searchQuery && (
+      <button
+        type="button"
+        onClick={() => setSearchQuery('')}
+        className="text-neutral-400 hover:text-neutral-600"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    )}
+  </div>
+
+  {/* Panel filter */}
+  <div
+    className={`p-3 rounded-2xl border space-y-3 ${
+      isDark
+        ? 'bg-neutral-900 border-neutral-800'
+        : 'bg-white border-neutral-200 shadow-xs'
+    }`}
+  >
+    <div className="flex items-center justify-between">
+      <span className="text-[10px] text-neutral-500 uppercase font-bold">
+        Filter{activeFilterCount > 0 ? ` (${activeFilterCount} aktif)` : ''}
+      </span>
+      {activeFilterCount > 0 && (
         <button
           type="button"
-          onClick={() => setSearchQuery('')}
-          className="text-neutral-400 hover:text-neutral-600"
+          onClick={resetFilters}
+          className="text-[10px] text-red-500 hover:text-red-600 font-bold"
         >
-          <X className="w-3.5 h-3.5" />
+          Reset semua
         </button>
       )}
     </div>
-    <button
-      type="button"
-      onClick={() => setShowFilterPanel(v => !v)}
-      className={`relative px-3 py-2 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 transition-colors ${
-        showFilterPanel || activeFilterCount > 0
-          ? isDark
-            ? 'bg-white text-neutral-950 border-white'
-            : 'bg-neutral-900 text-white border-neutral-900'
-          : isDark
-            ? 'bg-neutral-900 text-neutral-300 border-neutral-800 hover:bg-neutral-800'
-            : 'bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-100 shadow-xs'
-      }`}
-    >
-      <SlidersHorizontal className="w-3.5 h-3.5" />
-      <span>Filter</span>
-      {activeFilterCount > 0 && (
-        <span
-          className={`ml-0.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold inline-flex items-center justify-center ${
-            showFilterPanel || activeFilterCount > 0
-              ? isDark
-                ? 'bg-neutral-900 text-white'
-                : 'bg-white text-neutral-900'
-              : 'bg-emerald-500 text-white'
-          }`}
-        >
-          {activeFilterCount}
-        </span>
-      )}
-    </button>
-  </div>
 
-  {/* Active filter chips */}
-  {activeFilterCount > 0 && (
-    <div className="flex flex-wrap gap-1.5">
-      {searchQuery.trim() && (
-        <FilterChip
-          label={`Cari: "${searchQuery}"`}
-          onRemove={() => setSearchQuery('')}
-          isDark={isDark}
-        />
-      )}
-      {!hasCustomRange && timeframe !== 'all' && (
-        <FilterChip
-          label={`Periode: ${
-            { today: 'Hari Ini', '7days': '7 Hari', month: 'Bulan Ini', all: 'Semua' }[timeframe]
-          }`}
-          onRemove={() => setTimeframe('all')}
-          isDark={isDark}
-        />
-      )}
-      {paymentFilter !== 'all' && (
-        <FilterChip
-          label={`Bayar: ${paymentFilter.toUpperCase()}`}
-          onRemove={() => setPaymentFilter('all')}
-          isDark={isDark}
-        />
-      )}
+    {/* Metode bayar */}
+    <div>
+      <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
+        Metode Bayar
+      </label>
+      <div className="grid grid-cols-5 gap-1">
+        {(['all', 'tunai', 'qris', 'transfer', 'debit'] as PaymentFilter[]).map(m => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setPaymentFilter(m)}
+            className={`py-1.5 rounded-lg text-[10px] font-bold uppercase transition-colors ${
+              paymentFilter === m
+                ? isDark
+                  ? 'bg-white text-neutral-950'
+                  : 'bg-neutral-900 text-white'
+                : isDark
+                  ? 'bg-neutral-800 text-neutral-400 hover:text-white'
+                  : 'bg-neutral-100 text-neutral-500 hover:text-neutral-900'
+            }`}
+          >
+            {m === 'all' ? 'Semua' : m}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* Periode */}
+    <div>
+      <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
+        Periode
+      </label>
+      <div className="grid grid-cols-4 gap-1">
+        {([
+          { id: 'today', label: 'Hari Ini' },
+          { id: '7days', label: '7 Hari' },
+          { id: 'month', label: 'Bulan Ini' },
+          { id: 'all', label: 'Semua' },
+        ] as { id: Timeframe; label: string }[]).map(item => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => {
+              setTimeframe(item.id);
+              setCustomStart('');
+              setCustomEnd('');
+            }}
+            className={`py-1.5 rounded-lg text-[10px] font-bold transition-colors ${
+              !hasCustomRange && timeframe === item.id
+                ? isDark
+                  ? 'bg-white text-neutral-950'
+                  : 'bg-neutral-900 text-white'
+                : isDark
+                  ? 'bg-neutral-800 text-neutral-400 hover:text-white'
+                  : 'bg-neutral-100 text-neutral-500 hover:text-neutral-900'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* Rentang tanggal */}
+    <div>
+      <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
+        Rentang Tanggal
+      </label>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="min-w-0">
+          <label className="text-[9px] text-neutral-500 block mb-0.5">Dari</label>
+          <input
+            type="date"
+            value={customStart}
+            max={customEnd || undefined}
+            onChange={e => setCustomStart(e.target.value)}
+            className={`block w-full min-w-0 max-w-full h-9 appearance-none text-xs px-2 rounded-lg border outline-none font-mono [&::-webkit-date-and-time-value]:text-left ${
+              isDark
+                ? 'bg-neutral-800 text-white border-neutral-700'
+                : 'bg-neutral-50 text-neutral-900 border-neutral-200'
+            }`}
+          />
+        </div>
+        <div className="min-w-0">
+          <label className="text-[9px] text-neutral-500 block mb-0.5">Sampai</label>
+          <input
+            type="date"
+            value={customEnd}
+            min={customStart || undefined}
+            onChange={e => setCustomEnd(e.target.value)}
+            className={`block w-full min-w-0 max-w-full h-9 appearance-none text-xs px-2 rounded-lg border outline-none font-mono [&::-webkit-date-and-time-value]:text-left ${
+              isDark
+                ? 'bg-neutral-800 text-white border-neutral-700'
+                : 'bg-neutral-50 text-neutral-900 border-neutral-200'
+            }`}
+          />
+        </div>
+      </div>
       {hasCustomRange && (
-        <FilterChip
-          label={`${customStart || '...'} → ${customEnd || '...'}`}
-          onRemove={() => {
-            setCustomStart('');
-            setCustomEnd('');
-          }}
-          isDark={isDark}
-        />
+        <p className="text-[10px] text-neutral-500 mt-1.5">
+          Rentang tanggal dipakai menggantikan pilihan Periode di atas.
+        </p>
       )}
-      <button
-        type="button"
-        onClick={resetFilters}
-        className="text-[10px] text-red-500 hover:text-red-600 font-bold px-2 py-1"
-      >
-        Reset semua
-      </button>
     </div>
-  )}
-
-  {/* Expandable filter panel */}
-  {showFilterPanel && (
-    <div
-      className={`p-3 rounded-2xl border space-y-3 ${
-        isDark
-          ? 'bg-neutral-900 border-neutral-800'
-          : 'bg-white border-neutral-200 shadow-xs'
-      }`}
-    >
-      {/* Metode bayar */}
-      <div>
-        <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
-          Metode Bayar
-        </label>
-        <div className="grid grid-cols-5 gap-1">
-          {(['all', 'tunai', 'qris', 'transfer', 'debit'] as PaymentFilter[]).map(m => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => setPaymentFilter(m)}
-              className={`py-1.5 rounded-lg text-[10px] font-bold uppercase transition-colors ${
-                paymentFilter === m
-                  ? isDark
-                    ? 'bg-white text-neutral-950'
-                    : 'bg-neutral-900 text-white'
-                  : isDark
-                    ? 'bg-neutral-800 text-neutral-400 hover:text-white'
-                    : 'bg-neutral-100 text-neutral-500 hover:text-neutral-900'
-              }`}
-            >
-              {m === 'all' ? 'Semua' : m}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      
-      {/* Periode cepat */}
-      <div>
-        <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
-          Periode
-        </label>
-        <div className="grid grid-cols-4 gap-1">
-          {([
-            { id: 'today', label: 'Hari Ini' },
-            { id: '7days', label: '7 Hari' },
-            { id: 'month', label: 'Bulan Ini' },
-            { id: 'all', label: 'Semua' },
-          ] as { id: Timeframe; label: string }[]).map(item => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                setTimeframe(item.id);
-                setCustomStart('');
-                setCustomEnd('');
-              }}
-              className={`py-1.5 rounded-lg text-[10px] font-bold transition-colors ${
-                !hasCustomRange && timeframe === item.id
-                  ? isDark
-                    ? 'bg-white text-neutral-950'
-                    : 'bg-neutral-900 text-white'
-                  : isDark
-                    ? 'bg-neutral-800 text-neutral-400 hover:text-white'
-                    : 'bg-neutral-100 text-neutral-500 hover:text-neutral-900'
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Rentang tanggal (selalu tampil) */}
-      <div>
-        <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
-          Rentang Tanggal
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="text-[9px] text-neutral-500 block mb-0.5">Dari</label>
-            <input
-              type="date"
-              value={customStart}
-              max={customEnd || undefined}
-              onChange={e => setCustomStart(e.target.value)}
-              className={`w-full text-xs p-2 rounded-lg border outline-none font-mono ${
-                isDark
-                  ? 'bg-neutral-800 text-white border-neutral-700'
-                  : 'bg-neutral-50 text-neutral-900 border-neutral-200'
-              }`}
-            />
-          </div>
-          <div>
-            <label className="text-[9px] text-neutral-500 block mb-0.5">Sampai</label>
-            <input
-              type="date"
-              value={customEnd}
-              min={customStart || undefined}
-              onChange={e => setCustomEnd(e.target.value)}
-              className={`w-full text-xs p-2 rounded-lg border outline-none font-mono ${
-                isDark
-                  ? 'bg-neutral-800 text-white border-neutral-700'
-                  : 'bg-neutral-50 text-neutral-900 border-neutral-200'
-              }`}
-            />
-          </div>
-        </div>
-        {hasCustomRange && (
-          <p className="text-[10px] text-neutral-500 mt-1.5">
-            Rentang tanggal dipakai menggantikan tab Hari Ini / 7 Hari / Bulan Ini.
-          </p>
-        )}
-      </div>
-    </div>
-  )}
+  </div>
 </div>
 
       {/* Main KPI Cards Grid */}
