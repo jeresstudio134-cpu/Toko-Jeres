@@ -1265,6 +1265,11 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
                 <label className="text-[11px] text-neutral-500 block mb-1">
                   Foto Produk ({pImages.length}/{MAX_IMAGES}) · foto pertama jadi sampul
                 </label>
+                <p className="mb-2 text-[11px] leading-snug text-neutral-500 dark:text-neutral-400">
+                  Disarankan rasio 4:3 (landscape), contoh 1200 × 900 px. Letakkan objek utama
+                  di tengah foto karena thumbnail dipotong menjadi kotak. Format JPG/PNG/WebP,
+                  maksimal 5 MB.
+                </p>
                 <div className="grid grid-cols-4 gap-2">
                   {pImages.map((src, i) => (
                     <div
