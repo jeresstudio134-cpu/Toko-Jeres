@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Order, Product } from '../types';
+import { CalendarDays } from 'lucide-react';
 import { formatRupiah, formatDate } from '../utils/format';
 import {
   TrendingUp,
@@ -622,46 +623,64 @@ const activeFilterCount = useMemo(() => {
     </div>
 
     {/* Rentang tanggal */}
-    <div>
-      <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
-        Rentang Tanggal
-      </label>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="min-w-0">
-          <label className="text-[9px] text-neutral-500 block mb-0.5">Dari</label>
+<div>
+  <label className="text-[10px] text-neutral-500 uppercase font-bold block mb-1.5">
+    Rentang Tanggal
+  </label>
+  <div className="grid grid-cols-2 gap-2">
+    {([
+      { label: 'Dari', value: customStart, set: setCustomStart, max: customEnd || undefined, min: undefined },
+      { label: 'Sampai', value: customEnd, set: setCustomEnd, min: customStart || undefined, max: undefined },
+    ] as const).map(f => (
+      <div key={f.label} className="min-w-0">
+        <label className="text-[9px] text-neutral-500 block mb-0.5">{f.label}</label>
+        <div
+          className={`relative h-9 w-full min-w-0 rounded-lg border overflow-hidden ${
+            isDark
+              ? 'bg-neutral-800 border-neutral-700'
+              : 'bg-neutral-50 border-neutral-200'
+          }`}
+        >
+          {/* Teks tampilan (dikontrol sendiri, sama di semua perangkat) */}
+          <span
+            className={`absolute inset-y-0 left-2 right-8 flex items-center text-xs font-mono pointer-events-none truncate ${
+              f.value
+                ? isDark ? 'text-white' : 'text-neutral-900'
+                : 'text-neutral-400'
+            }`}
+          >
+            {f.value
+              ? new Date(f.value + 'T00:00:00').toLocaleDateString('id-ID', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                }).replace(/,/g, '')
+              : 'dd mmm yyyy'}
+          </span>
+
+          {/* Ikon kalender */}
+          <CalendarDays className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
+
+          {/* Input asli, transparan di atas semuanya agar tetap bisa diklik */}
           <input
             type="date"
-            value={customStart}
-            max={customEnd || undefined}
-            onChange={e => setCustomStart(e.target.value)}
-            className={`block w-full min-w-0 max-w-full h-9 appearance-none text-xs px-2 rounded-lg border outline-none font-mono [&::-webkit-date-and-time-value]:text-left ${
-              isDark
-                ? 'bg-neutral-800 text-white border-neutral-700'
-                : 'bg-neutral-50 text-neutral-900 border-neutral-200'
-            }`}
-          />
-        </div>
-        <div className="min-w-0">
-          <label className="text-[9px] text-neutral-500 block mb-0.5">Sampai</label>
-          <input
-            type="date"
-            value={customEnd}
-            min={customStart || undefined}
-            onChange={e => setCustomEnd(e.target.value)}
-            className={`block w-full min-w-0 max-w-full h-9 appearance-none text-xs px-2 rounded-lg border outline-none font-mono [&::-webkit-date-and-time-value]:text-left ${
-              isDark
-                ? 'bg-neutral-800 text-white border-neutral-700'
-                : 'bg-neutral-50 text-neutral-900 border-neutral-200'
-            }`}
+            value={f.value}
+            min={f.min}
+            max={f.max}
+            onChange={e => f.set(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer appearance-none"
+            style={{ WebkitAppearance: 'none', fontSize: 16 }}
           />
         </div>
       </div>
-      {hasCustomRange && (
-        <p className="text-[10px] text-neutral-500 mt-1.5">
-          Rentang tanggal dipakai menggantikan pilihan Periode di atas.
-        </p>
-      )}
-    </div>
+    ))}
+  </div>
+  {hasCustomRange && (
+    <p className="text-[10px] text-neutral-500 mt-1.5">
+      Rentang tanggal dipakai menggantikan pilihan Periode di atas.
+    </p>
+  )}
+</div>
   </div>
 </div>
 
