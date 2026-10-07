@@ -1,8 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy, Suspense } from 'react';
 import { Product, CartItem } from '../types';
 import { formatRupiah } from '../utils/format';
 import { Search, Plus, Minus, ShoppingBag, ArrowRight, Tag } from 'lucide-react';
-import { ProductDetailModal } from './ProductDetailModal';
+import { optimizeImage } from '../utils/cloudinary';
+
+const ProductDetailModal = lazy(() =>
+  import('./ProductDetailModal').then(m => ({ default: m.ProductDetailModal }))
+);
 
 interface KatalogViewProps {
   products: Product[];
@@ -27,6 +31,7 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<Product | null>(null);
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
 
   // Extract unique categories
   const categories = useMemo(() => {
@@ -174,24 +179,26 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
               >
                 {/* Product Thumbnail / Fallback Graphic */}
                 <div
-                  className={`w-16 h-16 rounded-xl flex-shrink-0 overflow-hidden relative border flex items-center justify-center ${
+                  className={`w-16 h-16 aspect-square rounded-xl flex-shrink-0 overflow-hidden relative border flex items-center justify-center ${
                     isDark
                       ? 'bg-neutral-800 border-neutral-700/50'
-                      : 'bg-neutral-50 border-neutral-200/80'
+                      : 'bg-neutral-100 border-neutral-200/80'
                   }`}
                 >
-                  {product.imageUrl ? (
+                  {product.imageUrl && !imageErrors[product.id] ? (
                     <img
-                      src={product.imageUrl}
+                      src={optimizeImage(product.imageUrl, 200, 200)}
                       alt={product.name}
+                      loading="lazy"
+                      decoding="async"
                       referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                      onError={e => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      className="absolute inset-0 h-full w-full object-cover object-center"
+                      onError={() => {
+                        setImageErrors(prev => ({ ...prev, [product.id]: true }));
                       }}
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center p-1 text-center">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-1 text-center select-none">
                       <Tag
                         className={`w-5 h-5 stroke-[1.5] mb-0.5 ${
                           isDark ? 'text-neutral-500' : 'text-neutral-400'
@@ -208,7 +215,7 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
                   )}
 
                   {isOutOfStock && (
-                    <div className="absolute inset-0 bg-neutral-950/80 backdrop-blur-[1px] flex items-center justify-center">
+                    <div className="z-10 absolute inset-0 bg-neutral-950/80 backdrop-blur-[1px] flex items-center justify-center">
                       <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider">
                         Habis
                       </span>
@@ -390,12 +397,14 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
 
       {/* Product Detail Modal */}
       {selectedProductForDetail && (
-        <ProductDetailModal
-          product={selectedProductForDetail}
-          onClose={() => setSelectedProductForDetail(null)}
-          onAdd={addToCart}
-          theme={theme}
-        />
+        <Suspense fallback={null}>
+          <ProductDetailModal
+            product={selectedProductForDetail}
+            onClose={() => setSelectedProductForDetail(null)}
+            onAdd={addToCart}
+            theme={theme}
+          />
+        </Suspense>
       )}
     </div>
   );

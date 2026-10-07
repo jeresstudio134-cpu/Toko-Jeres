@@ -75,7 +75,7 @@ function parseCloudinaryUrl(rawUrl?: string) {
 }
 
 // ======================================================
-// HEALTH CHECK
+// HEALTH CHECK & PING
 // ======================================================
 
 app.get('/api/health', async (_req, res) => {
@@ -87,15 +87,79 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
+app.get(
+  '/api/ping',
+  wrap(async (_req, res) => {
+    await serverDb.ping();
+    res.json({ ok: true });
+  })
+);
+
+// Cache status database selama 60 detik untuk mencegah overhead di setiap request
+let lastDbCheckSuccessTime = 0;
+const DB_CHECK_CACHE_MS = 60 * 1000;
+
 // Di Vercel: kalau Neon tidak terhubung, tampilkan error, jangan pakai data lokal
 app.use('/api', async (req, res, next) => {
-  if (req.path === '/health' || !process.env.VERCEL) return next();
+  if (req.path === '/health' || req.path === '/ping' || !process.env.VERCEL) return next();
+  const now = Date.now();
+  if (now - lastDbCheckSuccessTime < DB_CHECK_CACHE_MS) {
+    return next();
+  }
   const s = await serverDb.status();
   if (!s.connected) {
     return res.status(503).json({ error: `Neon tidak terhubung: ${s.error}` });
   }
+  lastDbCheckSuccessTime = now;
   next();
 });
+
+// ======================================================
+// BOOTSTRAP (SINGLE FETCH INITIAL DATA)
+// ======================================================
+
+app.get(
+  '/api/bootstrap',
+  wrap(async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const [products, customers, orders, settings] = await Promise.all([
+      serverDb.getProducts(),
+      serverDb.getCustomers(),
+      serverDb.getOrders(),
+      serverDb.getSettings(),
+    ]);
+
+    // Jika QRIS atau gambar disimpan sebagai base64 di response, jangan sertakan di /api/bootstrap kecuali sudah berupa URL Cloudinary
+    const isUrl = (s?: string) => s && (s.startsWith('http://') || s.startsWith('https://'));
+    const isBase64 = (s?: string) => s && s.startsWith('data:');
+
+    const cleanSettings = {
+      ...settings,
+      qrisImageUrl: isUrl(settings.qrisImageUrl)
+        ? settings.qrisImageUrl
+        : isBase64(settings.qrisImageUrl)
+        ? ''
+        : settings.qrisImageUrl,
+    };
+
+    const cleanProducts = products.map(p => {
+      const cleanImageUrl = isUrl(p.imageUrl) ? p.imageUrl : isBase64(p.imageUrl) ? undefined : p.imageUrl;
+      const cleanImages = (p.images || []).filter(img => !isBase64(img));
+      return {
+        ...p,
+        imageUrl: cleanImageUrl,
+        images: cleanImages.length > 0 ? cleanImages : cleanImageUrl ? [cleanImageUrl] : [],
+      };
+    });
+
+    res.json({
+      products: cleanProducts,
+      customers,
+      orders,
+      settings: cleanSettings,
+    });
+  })
+);
 
 // ======================================================
 // CLOUDINARY UPLOAD
@@ -347,6 +411,7 @@ app.delete(
 app.get(
   '/api/orders',
   wrap(async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     res.json(await serverDb.getOrders());
   })
 );
@@ -354,6 +419,7 @@ app.get(
 app.post(
   '/api/orders',
   wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const order =
       await serverDb.createOrder(req.body);
 
@@ -364,6 +430,7 @@ app.post(
 app.put(
   '/api/orders/:id',
   wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const {
       customerName,
       customerPhone,
@@ -401,6 +468,7 @@ app.put(
 app.delete(
   '/api/orders/:id',
   wrap(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const success =
       await serverDb.deleteOrder(
         req.params.id
@@ -425,6 +493,7 @@ app.delete(
 app.get(
   '/api/settings',
   wrap(async (_req, res) => {
+    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
     res.json(
       await serverDb.getSettings()
     );

@@ -307,11 +307,19 @@ export class ServerDatabase {
 
   private async getDbSafe(): Promise<Db | null> {
     if (!process.env.DATABASE_URL?.trim()) return null;
+    if (process.env.VERCEL) {
+      return await this.db();
+    }
     try {
       return await this.db();
     } catch {
       return null;
     }
+  }
+
+  public async ping(): Promise<void> {
+    const db = await this.db();
+    await db.execute(sql`SELECT 1`);
   }
 
   /** Ambil koneksi Neon. Kalau gagal, lempar error yang jelas (tanpa data palsu). */
@@ -765,8 +773,10 @@ export class ServerDatabase {
   public async getOrders(): Promise<Order[]> {
     const db = await this.getDbSafe();
     if (db) {
-      const orders = await db.select().from(t.orders).orderBy(desc(t.orders.seq));
-      const items = await db.select().from(t.orderItems).orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
+      const [orders, items] = await Promise.all([
+        db.select().from(t.orders).orderBy(desc(t.orders.seq)),
+        db.select().from(t.orderItems).orderBy(asc(t.orderItems.position), asc(t.orderItems.id)),
+      ]);
       const byOrder = new Map<string, (typeof t.orderItems.$inferSelect)[]>();
       for (const it of items) {
         const list = byOrder.get(it.orderId) || [];

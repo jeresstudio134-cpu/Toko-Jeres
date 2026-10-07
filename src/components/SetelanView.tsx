@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Product, Customer, Order, StoreSettings } from '../types';
 import { ApiService } from '../services/api';
 import { formatRupiah } from '../utils/format';
-import { uploadImage, optimizedUrl } from '../utils/cloudinary';
+import { uploadImage, optimizeImage, optimizedUrl } from '../utils/cloudinary';
 import {
   Store,
   Database,
@@ -152,7 +152,11 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
     setIsUploadingQris(true);
     setQrisUploadError('');
     try {
-      const url = await uploadImage(file);
+      const url = await uploadImage(
+        file,
+        cloudName.trim() || settings.cloudinaryCloudName,
+        uploadPreset.trim() || settings.cloudinaryUploadPreset
+      );
       setQrisImageUrl(url);
     } catch (err: any) {
       setQrisUploadError(err.message || 'Gagal mengunggah barcode QRIS.');
@@ -296,7 +300,13 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
     setUploadError('');
     setIsUploading(true);
     const results = await Promise.allSettled(
-      files.map(f => uploadImage(f, cloudName.trim(), uploadPreset.trim()))
+      files.map(f =>
+        uploadImage(
+          f,
+          cloudName.trim() || settings.cloudinaryCloudName,
+          uploadPreset.trim() || settings.cloudinaryUploadPreset
+        )
+      )
     );
     const urls = results
       .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
@@ -746,6 +756,8 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
                       <img
                         src={qrisImageUrl}
                         alt="QRIS Toko"
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-contain"
                       />
                     </div>
@@ -1257,24 +1269,26 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
                   {pImages.map((src, i) => (
                     <div
                       key={`${src}-${i}`}
-                      className={`relative aspect-square rounded-xl overflow-hidden border ${
+                      className={`relative aspect-square rounded-xl overflow-hidden border bg-neutral-100 dark:bg-neutral-800 ${
                         isDark ? 'border-neutral-700' : 'border-neutral-200'
                       }`}
                     >
                       <img
-                        src={optimizedUrl(src, 200)}
+                        src={optimizeImage(src, 200, 200)}
                         alt={`Foto ${i + 1}`}
-                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                        className="absolute inset-0 h-full w-full object-cover object-center"
                       />
                       {i === 0 ? (
-                        <span className="absolute left-1 bottom-1 text-[8px] font-bold px-1 py-0.5 rounded bg-emerald-600 text-white">
+                        <span className="z-10 absolute left-1 bottom-1 text-[8px] font-bold px-1 py-0.5 rounded bg-emerald-600 text-white">
                           Sampul
                         </span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => handleMakeCover(i)}
-                          className="absolute left-1 bottom-1 text-[8px] font-bold px-1 py-0.5 rounded bg-black/60 text-white"
+                          className="z-10 absolute left-1 bottom-1 text-[8px] font-bold px-1 py-0.5 rounded bg-black/60 text-white"
                         >
                           Jadikan sampul
                         </button>
@@ -1283,7 +1297,7 @@ export const SetelanView: React.FC<SetelanViewProps> = ({
                         type="button"
                         onClick={() => setPImages(prev => prev.filter((_, idx) => idx !== i))}
                         aria-label="Hapus foto"
-                        className="absolute right-1 top-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center"
+                        className="z-10 absolute right-1 top-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] flex items-center justify-center"
                       >
                         ✕
                       </button>

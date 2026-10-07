@@ -13,7 +13,9 @@ import {
   Receipt,
   Percent,
   ShoppingBag,
+  Tag,
 } from 'lucide-react';
+import { optimizeImage } from '../utils/cloudinary';
 
 interface KasirViewProps {
   cart: CartItem[];
@@ -55,6 +57,7 @@ export const KasirView: React.FC<KasirViewProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('tunai');
   const [cashGiven, setCashGiven] = useState<number>(0);
   const [customerSuggestionsOpen, setCustomerSuggestionsOpen] = useState(false);
+  const [cartImageErrors, setCartImageErrors] = useState<Record<string, boolean>>({});
 
   // Calculations with Panjang x Lebar multiplier support
   const subtotal = useMemo(() => {
@@ -243,27 +246,58 @@ export const KasirView: React.FC<KasirViewProps> = ({
                 isDark ? 'border-neutral-800/80' : 'border-neutral-100'
               }`}
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className={`text-xs font-bold truncate ${isDark ? 'text-white' : 'text-neutral-900'}`}>
-                    {item.product.name}
-                  </div>
-                  <div className="text-[11px] text-neutral-500 font-mono tabular-nums">
-                    {hasDimensions ? (
-                      <>
-                        {formatRupiah(item.product.price)} × {area.toLocaleString('id-ID', { maximumFractionDigits: 2 })} m² × {item.quantity} ={' '}
-                        <span className={`font-bold ${isDark ? 'text-neutral-200' : 'text-neutral-900'}`}>
-                          {formatRupiah(itemSubtotal)}
-                        </span>
-                      </>
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                  {/* Thumbnail Produk Kasir */}
+                  <div
+                    className={`w-11 h-11 aspect-square rounded-xl flex-shrink-0 overflow-hidden relative border flex items-center justify-center ${
+                      isDark
+                        ? 'bg-neutral-800 border-neutral-700/60'
+                        : 'bg-neutral-100 border-neutral-200/80'
+                    }`}
+                  >
+                    {item.product.imageUrl && !cartImageErrors[item.product.id] ? (
+                      <img
+                        src={optimizeImage(item.product.imageUrl, 200, 200)}
+                        alt={item.product.name}
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="absolute inset-0 h-full w-full object-cover object-center"
+                        onError={() =>
+                          setCartImageErrors(prev => ({ ...prev, [item.product.id]: true }))
+                        }
+                      />
                     ) : (
-                      <>
-                        {formatRupiah(item.product.price)} x {item.quantity} ={' '}
-                        <span className={`font-bold ${isDark ? 'text-neutral-200' : 'text-neutral-900'}`}>
-                          {formatRupiah(itemSubtotal)}
-                        </span>
-                      </>
+                      <Tag
+                        className={`w-4 h-4 stroke-[1.5] ${
+                          isDark ? 'text-neutral-500' : 'text-neutral-400'
+                        }`}
+                      />
                     )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-xs font-bold truncate ${isDark ? 'text-white' : 'text-neutral-900'}`}>
+                      {item.product.name}
+                    </div>
+                    <div className="text-[11px] text-neutral-500 font-mono tabular-nums">
+                      {hasDimensions ? (
+                        <>
+                          {formatRupiah(item.product.price)} × {area.toLocaleString('id-ID', { maximumFractionDigits: 2 })} m² × {item.quantity} ={' '}
+                          <span className={`font-bold ${isDark ? 'text-neutral-200' : 'text-neutral-900'}`}>
+                            {formatRupiah(itemSubtotal)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          {formatRupiah(item.product.price)} x {item.quantity} ={' '}
+                          <span className={`font-bold ${isDark ? 'text-neutral-200' : 'text-neutral-900'}`}>
+                            {formatRupiah(itemSubtotal)}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -692,6 +726,8 @@ export const KasirView: React.FC<KasirViewProps> = ({
                   <img
                     src={settings.qrisImageUrl}
                     alt={`QRIS ${settings.storeName}`}
+                    loading="lazy"
+                    decoding="async"
                     className="w-48 h-48 sm:w-56 sm:h-56 object-contain rounded-lg mx-auto"
                   />
                   <div className="mt-2 text-center border-t border-neutral-100 pt-1.5">

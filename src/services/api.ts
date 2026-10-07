@@ -3,6 +3,18 @@ import { Product, Customer, Order, StoreSettings } from '../types';
 const API_BASE = '/api';
 
 export const ApiService = {
+  // Bootstrap (Semua data awal toko dalam 1 request)
+  async getBootstrap(): Promise<{
+    products: Product[];
+    customers: Customer[];
+    orders: Order[];
+    settings: StoreSettings;
+  }> {
+    const res = await fetch(`${API_BASE}/bootstrap`);
+    if (!res.ok) throw new Error('Failed to fetch bootstrap data');
+    return res.json();
+  },
+
   // Products
   async getProducts(): Promise<Product[]> {
     const res = await fetch(`${API_BASE}/products`);

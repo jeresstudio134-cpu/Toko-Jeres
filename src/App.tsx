@@ -10,8 +10,11 @@ import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { KatalogView } from './components/KatalogView';
 import { KasirView } from './components/KasirView';
-import { NotaView } from './components/NotaView';
 import { CustomerView } from './components/CustomerView';
+
+const NotaView = lazy(() =>
+  import('./components/NotaView').then(m => ({ default: m.NotaView }))
+);
 const LaporanView = lazy(() =>
   import('./components/LaporanView').then(m => ({ default: m.LaporanView }))
 );
@@ -19,11 +22,42 @@ const SetelanView = lazy(() =>
   import('./components/SetelanView').then(m => ({ default: m.SetelanView }))
 );
 
+const CACHE_KEY = 'jeres_cache_v1';
+
+interface AppCache {
+  products?: Product[];
+  customers?: Customer[];
+  orders?: Order[];
+  settings?: StoreSettings;
+}
+
+const loadAppCache = (): AppCache | null => {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (err) {
+    console.warn('Gagal membaca cache lokal:', err);
+  }
+  return null;
+};
+
+const ViewSkeleton = () => (
+  <div className="p-4 space-y-4 animate-pulse">
+    <div className="h-6 bg-neutral-200 dark:bg-neutral-800 rounded w-1/3"></div>
+    <div className="h-28 bg-neutral-100 dark:bg-neutral-900 rounded-xl"></div>
+    <div className="h-28 bg-neutral-100 dark:bg-neutral-900 rounded-xl"></div>
+  </div>
+);
+
 export default function App() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [settings, setSettings] = useState<StoreSettings>({
+  const cached = React.useMemo(() => loadAppCache(), []);
+
+  const [products, setProducts] = useState<Product[]>(() => cached?.products || []);
+  const [customers, setCustomers] = useState<Customer[]>(() => cached?.customers || []);
+  const [orders, setOrders] = useState<Order[]>(() => cached?.orders || []);
+  const [settings, setSettings] = useState<StoreSettings>(() => ({
     storeName: 'JERES STUDIO',
     tagline: 'Toko & Kasir HP',
     address: 'Jl. Senopati No. 42, Jakarta Selatan',
@@ -35,12 +69,18 @@ export default function App() {
     currency: 'IDR',
     theme: 'light',
     adminPin: '1234',
-  });
+    ...(cached?.settings || {}),
+  }));
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoaded, setIsLoaded] = useState<boolean>(() => !!cached);
+  const [isValidating, setIsValidating] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('katalog');
-  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
+    return cached?.orders && cached.orders.length > 0 ? cached.orders[0] : null;
+  });
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return cached?.settings?.theme || 'light';
+  });
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     try {
       return sessionStorage.getItem('kios_admin_auth') === 'true';
@@ -49,43 +89,53 @@ export default function App() {
     }
   });
 
-  // Load all initial data from the Full Server Database
-  const refreshDatabase = async () => {
-    // Tahap 1: data yang dibutuhkan Katalog, tampilkan secepatnya
+  // Load initial data via /api/bootstrap (Stale-While-Revalidate)
+  const fetchBootstrap = async () => {
+    setIsValidating(true);
     try {
-      const [prodList, storeSet] = await Promise.all([
-        ApiService.getProducts(),
-        ApiService.getSettings(),
-      ]);
-      setProducts(prodList);
-      setSettings(storeSet);
-      if (storeSet.theme) {
-        setTheme(storeSet.theme);
+      const data = await ApiService.getBootstrap();
+      if (Array.isArray(data.products)) setProducts(data.products);
+      if (Array.isArray(data.customers)) setCustomers(data.customers);
+      if (Array.isArray(data.orders)) {
+        setOrders(data.orders);
+        if (data.orders.length > 0) {
+          setActiveOrder(prev => prev ?? data.orders[0]);
+        }
+      }
+      if (data.settings) {
+        setSettings(prev => ({
+          ...prev,
+          ...data.settings,
+          adminPin: data.settings.adminPin || prev.adminPin || '1234',
+        }));
+        if (data.settings.theme) {
+          setTheme(data.settings.theme);
+        }
+      }
+
+      // Simpan ke cache tanpa data sensitif seperti adminPin
+      try {
+        const { adminPin, ...safeSettings } = data.settings || ({} as any);
+        const toCache: AppCache = {
+          products: data.products,
+          customers: data.customers,
+          orders: data.orders,
+          settings: safeSettings as StoreSettings,
+        };
+        localStorage.setItem(CACHE_KEY, JSON.stringify(toCache));
+      } catch (cacheErr) {
+        console.warn('Gagal menyimpan cache:', cacheErr);
       }
     } catch (e) {
-      console.error('Error fetching database:', e);
+      console.error('Error fetching bootstrap data:', e);
     } finally {
       setIsLoaded(true);
-    }
-
-    // Tahap 2: data yang lebih berat dimuat di latar belakang
-    try {
-      const [custList, ordList] = await Promise.all([
-        ApiService.getCustomers(),
-        ApiService.getOrders(),
-      ]);
-      setCustomers(custList);
-      setOrders(ordList);
-      if (ordList.length > 0) {
-        setActiveOrder(prev => prev ?? ordList[0]);
-      }
-    } catch (e) {
-      console.error('Error fetching customers/orders:', e);
+      setIsValidating(false);
     }
   };
 
   useEffect(() => {
-    refreshDatabase();
+    fetchBootstrap();
   }, []);
 
   useEffect(() => {
@@ -344,24 +394,26 @@ export default function App() {
             : 'bg-white sm:border-x sm:border-neutral-200/70 sm:shadow-[0_0_40px_rgba(0,0,0,0.03)]'
         }`}
       >
-        <div className="print:hidden">
+        <div className="print:hidden relative">
+          {isValidating && (
+            <div className="absolute top-2 right-14 z-50 pointer-events-none flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono border border-emerald-500/20 backdrop-blur-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span className="text-[9px]">Sinkronisasi</span>
+            </div>
+          )}
           <Header
             settings={settings}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          theme={theme}
-          onToggleTheme={handleToggleTheme}
-          isAdminAuthenticated={isAdminAuthenticated}
-          onLockAdmin={() => handleSetAdminAuth(false)}
-        />
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            isAdminAuthenticated={isAdminAuthenticated}
+            onLockAdmin={() => handleSetAdminAuth(false)}
+          />
         </div>
 
         <main className="flex-1 w-full overflow-y-auto no-scrollbar print:overflow-visible print:block">
-          <Suspense
-            fallback={
-              <div className="p-6 text-center text-xs text-neutral-400 font-mono">Memuat...</div>
-            }
-          >
+          <Suspense fallback={<ViewSkeleton />}>
           {activeTab === 'katalog' && (
             <KatalogView
               products={products}

@@ -19,8 +19,11 @@ import {
   AlertTriangle,
   X,
 } from 'lucide-react';
-import { BarcodeScanner } from './BarcodeScanner';
 import { QRCodeComponent } from './QRCodeComponent';
+
+const BarcodeScanner = React.lazy(() =>
+  import('./BarcodeScanner').then(m => ({ default: m.BarcodeScanner }))
+);
 
 interface NotaViewProps {
   orders: Order[];
@@ -544,12 +547,16 @@ export const NotaView: React.FC<NotaViewProps> = ({
       </div>
 
       {/* Kamera Barcode Scanner Modal */}
-      <BarcodeScanner
-        isOpen={isScannerOpen}
-        onClose={() => setIsScannerOpen(false)}
-        onScan={handleBarcodeScanned}
-        theme={theme}
-      />
+      {isScannerOpen && (
+        <React.Suspense fallback={null}>
+          <BarcodeScanner
+            isOpen={isScannerOpen}
+            onClose={() => setIsScannerOpen(false)}
+            onScan={handleBarcodeScanned}
+            theme={theme}
+          />
+        </React.Suspense>
+      )}
 
       
     </div>
