@@ -92,8 +92,14 @@ export const ApiService = {
   },
 
   // Orders & Auto Customer Recording
-  async getOrders(): Promise<Order[]> {
-    const res = await fetch(`${API_BASE}/orders`);
+  async getOrders(params?: { from?: string; to?: string; limit?: number; days?: number }): Promise<Order[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.from) searchParams.set('from', params.from);
+    if (params?.to) searchParams.set('to', params.to);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.days) searchParams.set('days', String(params.days));
+    const qs = searchParams.toString();
+    const res = await fetch(`${API_BASE}/orders${qs ? `?${qs}` : ''}`);
     if (!res.ok) throw new Error('Failed to fetch orders');
     return res.json();
   },

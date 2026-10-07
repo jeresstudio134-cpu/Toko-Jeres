@@ -468,6 +468,10 @@ export class ServerDatabase {
       db.execute(sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS seq BIGSERIAL`),
       db.execute(sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS seq BIGSERIAL`),
       db.execute(sql`CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)`),
+      db.execute(sql`CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)`),
+      db.execute(sql`CREATE INDEX IF NOT EXISTS idx_orders_seq ON orders(seq)`),
+      db.execute(sql`CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)`),
+      db.execute(sql`CREATE INDEX IF NOT EXISTS idx_products_seq ON products(seq)`),
     ]);
 
     // Isi data contoh hanya kalau database benar-benar baru
@@ -556,11 +560,21 @@ export class ServerDatabase {
   public async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {
     const db = await this.getDbSafe();
     if (db) {
-      const current = await this.getProductById(id);
-      if (!current) return null;
-      const next: Product = { ...current, ...updates, id };
-      await db.update(t.products).set(productValues(next)).where(eq(t.products.id, id));
-      return next;
+      const patch: Record<string, any> = {};
+      if (updates.name !== undefined) patch.name = updates.name;
+      if (updates.category !== undefined) patch.category = updates.category;
+      if (updates.price !== undefined) patch.price = String(updates.price);
+      if (updates.costPrice !== undefined) patch.costPrice = String(updates.costPrice);
+      if (updates.stock !== undefined) patch.stock = updates.stock;
+      if (updates.unit !== undefined) patch.unit = updates.unit;
+      if (updates.imageUrl !== undefined) patch.imageUrl = updates.imageUrl;
+      if (updates.images !== undefined) patch.images = updates.images;
+      if (updates.sku !== undefined) patch.sku = updates.sku;
+      if (updates.description !== undefined) patch.description = updates.description;
+      if (updates.isActive !== undefined) patch.isActive = updates.isActive;
+
+      const [row] = await db.update(t.products).set(patch).where(eq(t.products.id, id)).returning();
+      return row ? toProduct(row) : null;
     }
     const local = this.loadLocalData();
     const idx = local.products.findIndex(p => p.id === id);
@@ -641,11 +655,19 @@ export class ServerDatabase {
   public async updateCustomer(id: string, updates: Partial<Customer>): Promise<Customer | null> {
     const db = await this.getDbSafe();
     if (db) {
-      const current = await this.getCustomerById(id);
-      if (!current) return null;
-      const next: Customer = { ...current, ...updates, id };
-      await db.update(t.customers).set(customerValues(next)).where(eq(t.customers.id, id));
-      return next;
+      const patch: Record<string, any> = {};
+      if (updates.name !== undefined) patch.name = updates.name;
+      if (updates.phone !== undefined) patch.phone = updates.phone;
+      if (updates.email !== undefined) patch.email = updates.email;
+      if (updates.address !== undefined) patch.address = updates.address;
+      if (updates.totalSpent !== undefined) patch.totalSpent = String(updates.totalSpent);
+      if (updates.ordersCount !== undefined) patch.ordersCount = updates.ordersCount;
+      if (updates.firstVisit !== undefined) patch.firstVisit = dt(updates.firstVisit);
+      if (updates.lastVisit !== undefined) patch.lastVisit = dt(updates.lastVisit);
+      if (updates.notes !== undefined) patch.notes = updates.notes;
+
+      const [row] = await db.update(t.customers).set(patch).where(eq(t.customers.id, id)).returning();
+      return row ? toCustomer(row) : null;
     }
     const local = this.loadLocalData();
     const idx = local.customers.findIndex(c => c.id === id);
@@ -770,13 +792,45 @@ export class ServerDatabase {
   // -------------------------
   // Orders
   // -------------------------
-  public async getOrders(): Promise<Order[]> {
+  public async getOrders(options?: {
+    from?: string;
+    to?: string;
+    days?: number;
+    limit?: number;
+  }): Promise<Order[]> {
     const db = await this.getDbSafe();
     if (db) {
-      const [orders, items] = await Promise.all([
-        db.select().from(t.orders).orderBy(desc(t.orders.seq)),
-        db.select().from(t.orderItems).orderBy(asc(t.orderItems.position), asc(t.orderItems.id)),
-      ]);
+      const conditions: any[] = [];
+      if (options?.from) {
+        conditions.push(sql`${t.orders.createdAt} >= ${new Date(options.from)}`);
+      }
+      if (options?.to) {
+        const toDate = new Date(options.to);
+        if (options.to.length <= 10) toDate.setHours(23, 59, 59, 999);
+        conditions.push(sql`${t.orders.createdAt} <= ${toDate}`);
+      }
+      if (options?.days && !options?.from) {
+        const since = new Date(Date.now() - options.days * 86400000);
+        conditions.push(sql`${t.orders.createdAt} >= ${since}`);
+      }
+
+      const ordersQuery = conditions.length > 0
+        ? db.select().from(t.orders).where(sql.join(conditions, sql` AND `)).orderBy(desc(t.orders.seq))
+        : db.select().from(t.orders).orderBy(desc(t.orders.seq));
+
+      const orders = options?.limit && options.limit > 0
+        ? await ordersQuery.limit(options.limit)
+        : await ordersQuery;
+
+      if (orders.length === 0) return [];
+
+      const orderIds = orders.map(o => o.id);
+      const items = await db
+        .select()
+        .from(t.orderItems)
+        .where(sql`${t.orderItems.orderId} IN ${orderIds}`)
+        .orderBy(asc(t.orderItems.position), asc(t.orderItems.id));
+
       const byOrder = new Map<string, (typeof t.orderItems.$inferSelect)[]>();
       for (const it of items) {
         const list = byOrder.get(it.orderId) || [];
@@ -786,7 +840,24 @@ export class ServerDatabase {
       return orders.map(o => toOrder(o, byOrder.get(o.id) || []));
     }
     const local = this.loadLocalData();
-    return [...local.orders];
+    let res = [...local.orders];
+    if (options?.from) {
+      const fromDate = new Date(options.from).getTime();
+      res = res.filter(o => new Date(o.createdAt).getTime() >= fromDate);
+    }
+    if (options?.to) {
+      const toDate = new Date(options.to);
+      if (options.to.length <= 10) toDate.setHours(23, 59, 59, 999);
+      res = res.filter(o => new Date(o.createdAt).getTime() <= toDate.getTime());
+    }
+    if (options?.days && !options?.from) {
+      const since = Date.now() - options.days * 86400000;
+      res = res.filter(o => new Date(o.createdAt).getTime() >= since);
+    }
+    if (options?.limit && options.limit > 0) {
+      res = res.slice(0, options.limit);
+    }
+    return res;
   }
 
   public async getOrderById(id: string): Promise<Order | undefined> {

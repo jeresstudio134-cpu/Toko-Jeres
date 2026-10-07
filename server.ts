@@ -122,10 +122,11 @@ app.get(
   '/api/bootstrap',
   wrap(async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
+    // Kirim orders hanya 30 hari terakhir (maksimal 200 order) untuk loading awal instan
     const [products, customers, orders, settings] = await Promise.all([
       serverDb.getProducts(),
       serverDb.getCustomers(),
-      serverDb.getOrders(),
+      serverDb.getOrders({ days: 30, limit: 200 }),
       serverDb.getSettings(),
     ]);
 
@@ -140,6 +141,8 @@ app.get(
         : isBase64(settings.qrisImageUrl)
         ? ''
         : settings.qrisImageUrl,
+      // Jangan sertakan teks QRIS panjang jika tidak diperlukan di awal
+      qrisCodeText: settings.qrisCodeText && settings.qrisCodeText.length > 200 ? '' : settings.qrisCodeText,
     };
 
     const cleanProducts = products.map(p => {
@@ -410,9 +413,16 @@ app.delete(
 
 app.get(
   '/api/orders',
-  wrap(async (_req, res) => {
+  wrap(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json(await serverDb.getOrders());
+    const { from, to, limit, days } = req.query;
+    const orders = await serverDb.getOrders({
+      from: typeof from === 'string' ? from : undefined,
+      to: typeof to === 'string' ? to : undefined,
+      limit: typeof limit === 'string' ? parseInt(limit, 10) : undefined,
+      days: typeof days === 'string' ? parseInt(days, 10) : undefined,
+    });
+    res.json(orders);
   })
 );
 

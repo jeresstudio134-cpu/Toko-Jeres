@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import QRCode from 'qrcode';
 
 interface QRCodeProps {
   value: string;
@@ -25,25 +24,35 @@ export const QRCodeComponent: React.FC<QRCodeProps> = ({
     const cleanValue = value.trim();
     // Gunakan 'L' untuk teks panjang agar kepadatan modul QR tidak terlalu rapat sehingga sangat mudah di-scan oleh kamera HP
     const ecl = errorCorrectionLevel || (cleanValue.length > 120 ? 'L' : 'M');
+    let isCurrent = true;
 
-    QRCode.toString(cleanValue, {
-      type: 'svg',
-      margin: 1,
-      errorCorrectionLevel: ecl,
-      color: {
-        dark: '#000000',
-        light: '#ffffff',
-      },
-      width: size,
-    })
+    import('qrcode')
+      .then(({ default: QRCode }) => {
+        return QRCode.toString(cleanValue, {
+          type: 'svg',
+          margin: 1,
+          errorCorrectionLevel: ecl,
+          color: {
+            dark: '#000000',
+            light: '#ffffff',
+          },
+          width: size,
+        });
+      })
       .then(svg => {
+        if (!isCurrent) return;
         // Pastikan SVG responsif dan pas dengan lebar cetak struk
         const responsiveSvg = svg.replace('<svg ', '<svg class="max-w-full h-auto" ');
         setSvgMarkup(responsiveSvg);
       })
       .catch(err => {
+        if (!isCurrent) return;
         console.warn('Gagal merender QR Code:', err);
       });
+
+    return () => {
+      isCurrent = false;
+    };
   }, [value, size, errorCorrectionLevel]);
 
   if (!value || !svgMarkup) return null;
