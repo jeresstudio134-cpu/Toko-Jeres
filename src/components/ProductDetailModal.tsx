@@ -22,13 +22,51 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const outOfStock = product.stock <= 0;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>({});
+  const [fallbackMap, setFallbackMap] = useState<Record<number, boolean>>({});
   const [imageLoaded, setImageLoaded] = useState(false);
+  const mainImgRef = React.useRef<HTMLImageElement>(null);
+
+  // Preload semua gambar produk saat modal dibuka
+  useEffect(() => {
+    if (!images || images.length === 0) return;
+    images.forEach(imgUrl => {
+      if (!imgUrl) return;
+      const opt = optimizeImage(imgUrl, 800, 600);
+      const img1 = new Image();
+      img1.src = opt;
+      if (opt !== imgUrl) {
+        const img2 = new Image();
+        img2.src = imgUrl;
+      }
+    });
+  }, [images]);
+
+  // Cek apakah gambar saat ini sudah complete di cache browser
+  const rawSrc = images[selectedIndex] || '';
+  const currentSrc = rawSrc
+    ? (fallbackMap[selectedIndex] ? rawSrc : optimizeImage(rawSrc, 800, 600))
+    : '';
 
   useEffect(() => {
-    setImageLoaded(false);
-  }, [selectedIndex]);
+    const el = mainImgRef.current;
+    if (el && el.complete && el.naturalWidth > 0) {
+      setImageLoaded(true);
+    }
+  }, [currentSrc]);
 
-  const hasValidImage = images.length > 0 && !imageErrorMap[selectedIndex];
+  const handleImageError = (index: number) => {
+    const originalUrl = images[index];
+    const optimized = optimizeImage(originalUrl, 800, 600);
+    // Jika gagal dengan URL optimasi Cloudinary, coba sekali lagi dengan URL asli
+    if (!fallbackMap[index] && optimized !== originalUrl) {
+      setFallbackMap(prev => ({ ...prev, [index]: true }));
+    } else {
+      // Jika tetap gagal, tampilkan placeholder BELUM ADA FOTO
+      setImageErrorMap(prev => ({ ...prev, [index]: true }));
+    }
+  };
+
+  const hasValidImage = Boolean(currentSrc) && !imageErrorMap[selectedIndex];
 
   // Tutup dengan tombol Escape
   useEffect(() => {
@@ -59,21 +97,21 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         }`}
       >
         {/* Kolom Kiri: Tampilan Foto Utama Berbasis Rasio 4/3 */}
-        <div className="relative w-full md:w-[480px] md:flex-1 flex-shrink-0 flex items-center justify-center bg-neutral-100 dark:bg-neutral-900">
+        <div className="relative w-full md:w-[480px] md:flex-1 shrink-0 flex items-center justify-center bg-neutral-100 dark:bg-neutral-900 overflow-hidden">
           <div
-            className={`relative w-full aspect-[4/3] max-h-[45vh] md:max-h-none overflow-hidden bg-neutral-100 dark:bg-neutral-800 select-none`}
+            className="relative w-full aspect-[4/3] max-h-[45vh] md:max-h-none overflow-hidden bg-neutral-100 dark:bg-neutral-800 select-none"
           >
             {hasValidImage ? (
               <img
-                src={optimizeImage(images[selectedIndex], 800, 600)}
+                ref={mainImgRef}
+                key={currentSrc}
+                src={currentSrc}
                 alt={`${product.name} - Foto ${selectedIndex + 1}`}
-                loading={selectedIndex === 0 ? 'eager' : 'lazy'}
+                loading="eager"
                 decoding="async"
                 onLoad={() => setImageLoaded(true)}
-                className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
-                  imageLoaded ? 'opacity-100' : 'opacity-0'
-                }`}
-                onError={() => setImageErrorMap(prev => ({ ...prev, [selectedIndex]: true }))}
+                onError={() => handleImageError(selectedIndex)}
+                className="absolute inset-0 h-full w-full object-cover object-center"
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-400 dark:text-neutral-500 p-6 text-center select-none">

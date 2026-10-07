@@ -23,8 +23,18 @@ const CartThumbnail: React.FC<{
   onError: () => void;
 }> = ({ src, alt, onError }) => {
   const [loaded, setLoaded] = React.useState(false);
+  const imgRef = React.useRef<HTMLImageElement>(null);
+
+  React.useEffect(() => {
+    if (imgRef.current?.complete && imgRef.current?.naturalWidth > 0) {
+      setLoaded(true);
+    }
+  }, [src]);
+
   return (
     <img
+      ref={imgRef}
+      key={src}
       src={src}
       alt={alt}
       loading="lazy"

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 import { optimizeImage } from '../utils/cloudinary';
 
@@ -18,7 +18,34 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({
   const ref = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(0);
   const [errorMap, setErrorMap] = useState<Record<number, boolean>>({});
-  const [loadedMap, setLoadedMap] = useState<Record<number, boolean>>({});
+  const [fallbackMap, setFallbackMap] = useState<Record<number, boolean>>({});
+
+  // Preload semua gambar saat carousel dibuka
+  useEffect(() => {
+    if (!images || images.length === 0) return;
+    images.forEach(imgUrl => {
+      if (!imgUrl) return;
+      const opt = optimizeImage(imgUrl, 800, 600);
+      const i1 = new Image();
+      i1.src = opt;
+      if (opt !== imgUrl) {
+        const i2 = new Image();
+        i2.src = imgUrl;
+      }
+    });
+  }, [images]);
+
+  const handleImageError = (i: number) => {
+    const raw = images[i];
+    const opt = optimizeImage(raw, 800, 600);
+    // Jika gagal dengan URL optimasi Cloudinary, coba sekali lagi dengan URL asli
+    if (!fallbackMap[i] && opt !== raw) {
+      setFallbackMap(prev => ({ ...prev, [i]: true }));
+    } else {
+      // Jika tetap gagal, tandai error dan tampilkan placeholder
+      setErrorMap(prev => ({ ...prev, [i]: true }));
+    }
+  };
 
   const goTo = (i: number) => {
     const el = ref.current;
@@ -58,31 +85,32 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({
         className="flex h-full w-full overflow-x-auto snap-x snap-mandatory no-scrollbar"
         style={{ scrollbarWidth: 'none' }}
       >
-        {images.map((src, i) => (
-          <div key={`${src}-${i}`} className="relative w-full h-full shrink-0 snap-center overflow-hidden">
-            {errorMap[i] ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-400 dark:text-neutral-500 p-4 text-center select-none">
-                <Tag className="w-12 h-12 stroke-[1.5] mb-2 opacity-35" />
-                <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">
-                  Belum Ada Foto
-                </span>
-              </div>
-            ) : (
-              <img
-                src={optimizeImage(src, 800, 600)}
-                alt={`${alt} ${i + 1}`}
-                loading={i === 0 ? 'eager' : 'lazy'}
-                decoding="async"
-                draggable={false}
-                onLoad={() => setLoadedMap(prev => ({ ...prev, [i]: true }))}
-                className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
-                  loadedMap[i] ? 'opacity-100' : 'opacity-0'
-                }`}
-                onError={() => setErrorMap(prev => ({ ...prev, [i]: true }))}
-              />
-            )}
-          </div>
-        ))}
+        {images.map((src, i) => {
+          const slideSrc = fallbackMap[i] ? src : optimizeImage(src, 800, 600);
+          return (
+            <div key={`${src}-${i}`} className="relative w-full h-full shrink-0 snap-center overflow-hidden">
+              {errorMap[i] ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-400 dark:text-neutral-500 p-4 text-center select-none">
+                  <Tag className="w-12 h-12 stroke-[1.5] mb-2 opacity-35" />
+                  <span className="text-[11px] font-mono uppercase tracking-wider font-semibold">
+                    Belum Ada Foto
+                  </span>
+                </div>
+              ) : (
+                <img
+                  key={slideSrc}
+                  src={slideSrc}
+                  alt={`${alt} ${i + 1}`}
+                  loading="eager"
+                  decoding="async"
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full object-cover object-center"
+                  onError={() => handleImageError(i)}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {images.length > 1 && (

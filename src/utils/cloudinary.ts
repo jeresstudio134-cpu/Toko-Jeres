@@ -119,16 +119,37 @@ export function optimizeImage(
   height = 600
 ): string {
   if (!url || typeof url !== 'string') return '';
-  if (!url.includes('res.cloudinary.com') || !url.includes('/upload/')) {
-    return url;
+  const trimmed = url.trim();
+  if (!trimmed.includes('res.cloudinary.com') || !trimmed.includes('/upload/')) {
+    return trimmed;
   }
-  // Jika sudah memiliki transformasi, kembalikan apa adanya
-  if (url.includes('/upload/c_') || url.includes('/upload/f_auto')) {
-    return url;
+
+  // Cari kemunculan pertama /upload/
+  const uploadIndex = trimmed.indexOf('/upload/');
+  if (uploadIndex === -1) return trimmed;
+
+  const afterUpload = trimmed.slice(uploadIndex + 8);
+  const firstSlashIndex = afterUpload.indexOf('/');
+  const firstSegment = firstSlashIndex !== -1 ? afterUpload.slice(0, firstSlashIndex) : afterUpload;
+
+  // Jika segmen setelah /upload/ sudah berisi parameter transformasi (misal c_, w_, h_, f_, q_, dll)
+  // Catatan: format version adalah v123... tanpa koma atau underscore sebelum slash
+  if (
+    firstSegment.includes(',') ||
+    /^[a-z]{1,2}_/i.test(firstSegment) ||
+    trimmed.includes('/upload/c_') ||
+    trimmed.includes('/upload/f_auto') ||
+    trimmed.includes('/upload/w_') ||
+    trimmed.includes('/upload/q_auto')
+  ) {
+    return trimmed;
   }
-  return url.replace(
-    '/upload/',
-    `/upload/c_fill,g_auto,w_${width},h_${height},f_auto,q_auto/`
+
+  // Sisipkan transformasi tepat setelah /upload/ pertama tanpa menggandakan /upload/
+  return (
+    trimmed.slice(0, uploadIndex + 8) +
+    `c_fill,g_auto,w_${width},h_${height},f_auto,q_auto/` +
+    afterUpload
   );
 }
 

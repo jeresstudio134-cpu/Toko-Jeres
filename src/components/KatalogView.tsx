@@ -12,8 +12,18 @@ const ProductThumbnail: React.FC<{
   onError: () => void;
 }> = ({ src, alt, isFirst, onError }) => {
   const [loaded, setLoaded] = useState(false);
+  const imgRef = React.useRef<HTMLImageElement>(null);
+
+  React.useEffect(() => {
+    if (imgRef.current?.complete && imgRef.current?.naturalWidth > 0) {
+      setLoaded(true);
+    }
+  }, [src]);
+
   return (
     <img
+      ref={imgRef}
+      key={src}
       src={src}
       alt={alt}
       loading={isFirst ? 'eager' : 'lazy'}
