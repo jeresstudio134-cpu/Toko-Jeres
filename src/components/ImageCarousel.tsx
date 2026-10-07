@@ -18,6 +18,7 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({
   const ref = useRef<HTMLDivElement>(null);
   const [index, setIndex] = useState(0);
   const [errorMap, setErrorMap] = useState<Record<number, boolean>>({});
+  const [loadedMap, setLoadedMap] = useState<Record<number, boolean>>({});
 
   const goTo = (i: number) => {
     const el = ref.current;
@@ -73,7 +74,10 @@ export const ImageCarousel: React.FC<ImageCarouselProps> = ({
                 loading={i === 0 ? 'eager' : 'lazy'}
                 decoding="async"
                 draggable={false}
-                className="absolute inset-0 h-full w-full object-cover object-center"
+                onLoad={() => setLoadedMap(prev => ({ ...prev, [i]: true }))}
+                className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+                  loadedMap[i] ? 'opacity-100' : 'opacity-0'
+                }`}
                 onError={() => setErrorMap(prev => ({ ...prev, [i]: true }))}
               />
             )}

@@ -17,6 +17,28 @@ import {
 } from 'lucide-react';
 import { optimizeImage } from '../utils/cloudinary';
 
+const CartThumbnail: React.FC<{
+  src: string;
+  alt: string;
+  onError: () => void;
+}> = ({ src, alt, onError }) => {
+  const [loaded, setLoaded] = React.useState(false);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onLoad={() => setLoaded(true)}
+      onError={onError}
+      className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+        loaded ? 'opacity-100' : 'opacity-0'
+      }`}
+    />
+  );
+};
+
 interface KasirViewProps {
   cart: CartItem[];
   customers: Customer[];
@@ -257,13 +279,9 @@ export const KasirView: React.FC<KasirViewProps> = ({
                     }`}
                   >
                     {item.product.imageUrl && !cartImageErrors[item.product.id] ? (
-                      <img
+                      <CartThumbnail
                         src={optimizeImage(item.product.imageUrl, 200, 200)}
                         alt={item.product.name}
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                        className="absolute inset-0 h-full w-full object-cover object-center"
                         onError={() =>
                           setCartImageErrors(prev => ({ ...prev, [item.product.id]: true }))
                         }

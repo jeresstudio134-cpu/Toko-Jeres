@@ -609,7 +609,7 @@ const startScanner = async (_cameraId?: string | null) => {
     cameraState === 'ready';
 
   return (
-    <div className="fixed inset-0 z-[9999] print:hidden flex flex-col items-center justify-between bg-black/95 text-white p-4">
+    <div className="fixed inset-0 z-[9999] print:hidden flex flex-col items-center justify-between bg-black/95 text-white p-4 transition-opacity duration-150 animate-in fade-in">
 
       {/* Hidden container untuk scan gambar */}
       <div

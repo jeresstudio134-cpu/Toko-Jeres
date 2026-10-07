@@ -96,9 +96,9 @@ export const EditPriceModal: React.FC<EditPriceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-opacity duration-150 animate-in fade-in">
       <div
-        className={`w-full max-w-sm rounded-3xl p-5 border shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto ${
+        className={`w-full max-w-sm rounded-3xl p-5 border shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto transition-all duration-150 animate-in fade-in zoom-in-95 ${
           isDark
             ? 'bg-neutral-900 border-neutral-800 text-white'
             : 'bg-white border-neutral-200 text-neutral-900'

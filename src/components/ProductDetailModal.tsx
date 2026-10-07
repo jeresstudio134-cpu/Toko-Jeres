@@ -22,6 +22,11 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const outOfStock = product.stock <= 0;
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [imageErrorMap, setImageErrorMap] = useState<Record<number, boolean>>({});
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [selectedIndex]);
 
   const hasValidImage = images.length > 0 && !imageErrorMap[selectedIndex];
 
@@ -42,19 +47,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 md:p-6 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 md:p-6 transition-opacity duration-150 animate-in fade-in"
       onClick={onClose}
     >
       <div
         onClick={e => e.stopPropagation()}
-        className={`relative w-full max-w-4xl max-h-[92vh] overflow-hidden rounded-2xl border shadow-2xl flex flex-col md:flex-row ${
+        className={`relative w-full max-w-4xl max-h-[92vh] overflow-hidden rounded-2xl border shadow-2xl flex flex-col md:flex-row transition-all duration-150 animate-in fade-in zoom-in-95 ${
           isDark
             ? 'bg-neutral-900 border-neutral-800 text-white'
             : 'bg-white border-neutral-200 text-neutral-900'
         }`}
       >
         {/* Kolom Kiri: Tampilan Foto Utama Berbasis Rasio 4/3 */}
-        <div className="relative w-full md:w-[480px] md:flex-1 flex-shrink-0 flex items-center justify-center bg-neutral-100 dark:bg-neutral-950">
+        <div className="relative w-full md:w-[480px] md:flex-1 flex-shrink-0 flex items-center justify-center bg-neutral-100 dark:bg-neutral-900">
           <div
             className={`relative w-full aspect-[4/3] max-h-[45vh] md:max-h-none overflow-hidden bg-neutral-100 dark:bg-neutral-800 select-none`}
           >
@@ -62,9 +67,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <img
                 src={optimizeImage(images[selectedIndex], 800, 600)}
                 alt={`${product.name} - Foto ${selectedIndex + 1}`}
-                loading="lazy"
+                loading={selectedIndex === 0 ? 'eager' : 'lazy'}
                 decoding="async"
-                className="absolute inset-0 h-full w-full object-cover object-center"
+                onLoad={() => setImageLoaded(true)}
+                className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+                  imageLoaded ? 'opacity-100' : 'opacity-0'
+                }`}
                 onError={() => setImageErrorMap(prev => ({ ...prev, [selectedIndex]: true }))}
               />
             ) : (

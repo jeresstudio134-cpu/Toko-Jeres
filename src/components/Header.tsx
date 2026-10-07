@@ -1,6 +1,7 @@
 import React from 'react';
 import { StoreSettings, ActiveTab } from '../types';
 import { Settings, Sun, Moon, ShieldCheck, Lock } from 'lucide-react';
+import { preloadLazyChunk } from '../utils/preload';
 
 interface HeaderProps {
   settings: StoreSettings;
@@ -78,6 +79,8 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Settings / Admin Button */}
           <button
             onClick={() => setActiveTab('setelan')}
+            onPointerEnter={() => preloadLazyChunk('setelan')}
+            onTouchStart={() => preloadLazyChunk('setelan')}
             aria-label="Pengaturan & Database"
             title={isAdminAuthenticated ? 'Admin Aktif - Pengaturan Database' : 'Akses Admin Database'}
             className={`min-h-[34px] min-w-[34px] p-1.5 rounded-lg transition-colors flex items-center justify-center ${

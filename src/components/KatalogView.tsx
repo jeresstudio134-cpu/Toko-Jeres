@@ -3,6 +3,30 @@ import { Product, CartItem } from '../types';
 import { formatRupiah } from '../utils/format';
 import { Search, Plus, Minus, ShoppingBag, ArrowRight, Tag } from 'lucide-react';
 import { optimizeImage } from '../utils/cloudinary';
+import { preloadLazyChunk } from '../utils/preload';
+
+const ProductThumbnail: React.FC<{
+  src: string;
+  alt: string;
+  isFirst: boolean;
+  onError: () => void;
+}> = ({ src, alt, isFirst, onError }) => {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading={isFirst ? 'eager' : 'lazy'}
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onLoad={() => setLoaded(true)}
+      onError={onError}
+      className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+        loaded ? 'opacity-100' : 'opacity-0'
+      }`}
+    />
+  );
+};
 
 const ProductDetailModal = lazy(() =>
   import('./ProductDetailModal').then(m => ({ default: m.ProductDetailModal }))
@@ -159,7 +183,7 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
             </button>
           </div>
         ) : (
-          filteredProducts.map(product => {
+          filteredProducts.map((product, index) => {
             const inCartQty = getProductCartQty(product.id);
             const isOutOfStock = product.stock <= 0;
 
@@ -167,6 +191,8 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
               <div
                 key={product.id}
                 onClick={() => setSelectedProductForDetail(product)}
+                onPointerEnter={() => preloadLazyChunk('productDetail')}
+                onTouchStart={() => preloadLazyChunk('productDetail')}
                 className={`border rounded-2xl p-3 flex items-center gap-3 transition-all cursor-pointer group active:scale-[0.99] ${
                   isDark
                     ? inCartQty > 0
@@ -186,13 +212,10 @@ export const KatalogView: React.FC<KatalogViewProps> = ({
                   }`}
                 >
                   {product.imageUrl && !imageErrors[product.id] ? (
-                    <img
+                    <ProductThumbnail
                       src={optimizeImage(product.imageUrl, 200, 200)}
                       alt={product.name}
-                      loading="lazy"
-                      decoding="async"
-                      referrerPolicy="no-referrer"
-                      className="absolute inset-0 h-full w-full object-cover object-center"
+                      isFirst={index === 0}
                       onError={() => {
                         setImageErrors(prev => ({ ...prev, [product.id]: true }));
                       }}

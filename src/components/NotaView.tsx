@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { QRCodeComponent } from './QRCodeComponent';
+import { preloadLazyChunk } from '../utils/preload';
 
 const BarcodeScanner = React.lazy(() =>
   import('./BarcodeScanner').then(m => ({ default: m.BarcodeScanner }))
@@ -481,6 +482,8 @@ export const NotaView: React.FC<NotaViewProps> = ({
           <button
             type="button"
             onClick={() => setIsScannerOpen(true)}
+            onPointerEnter={() => preloadLazyChunk('scanner')}
+            onTouchStart={() => preloadLazyChunk('scanner')}
             title="Pindai QR Code dengan Kamera"
             aria-label="Pindai QR Code"
             className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg active:scale-95 transition-colors ${

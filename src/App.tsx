@@ -11,6 +11,8 @@ import { BottomNav } from './components/BottomNav';
 import { KatalogView } from './components/KatalogView';
 import { KasirView } from './components/KasirView';
 import { CustomerView } from './components/CustomerView';
+import { DelayedFallback } from './components/DelayedFallback';
+import { preloadAllLazyComponents } from './utils/preload';
 
 const NotaView = lazy(() =>
   import('./components/NotaView').then(m => ({ default: m.NotaView }))
@@ -23,6 +25,7 @@ const SetelanView = lazy(() =>
 );
 
 const CACHE_KEY = 'jeres_cache_v1';
+const THEME_KEY = 'jeres_theme';
 
 interface AppCache {
   products?: Product[];
@@ -42,14 +45,6 @@ const loadAppCache = (): AppCache | null => {
   }
   return null;
 };
-
-const ViewSkeleton = () => (
-  <div className="p-4 space-y-4 animate-pulse">
-    <div className="h-6 bg-neutral-200 dark:bg-neutral-800 rounded w-1/3"></div>
-    <div className="h-28 bg-neutral-100 dark:bg-neutral-900 rounded-xl"></div>
-    <div className="h-28 bg-neutral-100 dark:bg-neutral-900 rounded-xl"></div>
-  </div>
-);
 
 export default function App() {
   const cached = React.useMemo(() => loadAppCache(), []);
@@ -75,10 +70,24 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState<boolean>(() => !!cached);
   const [isValidating, setIsValidating] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>('katalog');
+  const [, startTransition] = React.useTransition();
+
+  const handleTabChange = (newTab: ActiveTab) => {
+    startTransition(() => {
+      setActiveTab(newTab);
+    });
+  };
+
   const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
     return cached?.orders && cached.orders.length > 0 ? cached.orders[0] : null;
   });
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const savedTheme = localStorage.getItem(THEME_KEY);
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        return savedTheme;
+      }
+    } catch {}
     return cached?.settings?.theme || 'light';
   });
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
@@ -88,6 +97,42 @@ export default function App() {
       return false;
     }
   });
+
+  // Sinkronkan tema ke HTML dan LocalStorage secara konsisten
+  useEffect(() => {
+    const isD = theme === 'dark';
+    if (isD) {
+      document.documentElement.classList.add('dark');
+      document.documentElement.style.backgroundColor = '#0a0a0a';
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.style.backgroundColor = '#fafafa';
+    }
+    const meta = document.getElementById('meta-theme-color');
+    if (meta) {
+      meta.setAttribute('content', isD ? '#0a0a0a' : '#ffffff');
+    }
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {}
+  }, [theme]);
+
+  // Preload semua komponen lazy setelah halaman utama tampil (requestIdleCallback / 1500ms)
+  useEffect(() => {
+    const runPreload = () => {
+      preloadAllLazyComponents();
+    };
+
+    if (typeof window !== 'undefined') {
+      if ('requestIdleCallback' in window) {
+        const id = (window as any).requestIdleCallback(runPreload, { timeout: 2000 });
+        return () => (window as any).cancelIdleCallback(id);
+      } else {
+        const timer = setTimeout(runPreload, 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, []);
 
   // Load initial data via /api/bootstrap (Stale-While-Revalidate)
   const fetchBootstrap = async () => {
@@ -110,6 +155,9 @@ export default function App() {
         }));
         if (data.settings.theme) {
           setTheme(data.settings.theme);
+          try {
+            localStorage.setItem(THEME_KEY, data.settings.theme);
+          } catch {}
         }
       }
 
@@ -353,7 +401,7 @@ export default function App() {
   // Handler untuk pilih order dari list laporan → buka di tab Nota
   const handleSelectOrder = (order: Order) => {
     setActiveOrder(order);
-    setActiveTab('nota');
+    handleTabChange('nota');
   };
 
   // Handler untuk hapus order
@@ -373,8 +421,12 @@ export default function App() {
 
   if (!isLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#fafafa]">
-        <span className="text-xs text-neutral-400 font-mono">Memuat...</span>
+      <div
+        className={`min-h-screen flex items-center justify-center ${
+          isDark ? 'bg-neutral-950 text-neutral-400' : 'bg-[#fafafa] text-neutral-500'
+        }`}
+      >
+        <span className="text-xs font-mono">Memuat...</span>
       </div>
     );
   }
@@ -404,7 +456,7 @@ export default function App() {
           <Header
             settings={settings}
             activeTab={activeTab}
-            setActiveTab={setActiveTab}
+            setActiveTab={handleTabChange}
             theme={theme}
             onToggleTheme={handleToggleTheme}
             isAdminAuthenticated={isAdminAuthenticated}
@@ -413,15 +465,15 @@ export default function App() {
         </div>
 
         <main className="flex-1 w-full overflow-y-auto no-scrollbar print:overflow-visible print:block">
-          <Suspense fallback={<ViewSkeleton />}>
+          <Suspense fallback={<DelayedFallback delay={300} />}>
           {activeTab === 'katalog' && (
             <KatalogView
               products={products}
               cart={cart}
               addToCart={addToCart}
               removeFromCart={removeFromCart}
-              onGoToKasir={() => setActiveTab('kasir')}
-              onAddNewProduct={() => setActiveTab('setelan')}
+              onGoToKasir={() => handleTabChange('kasir')}
+              onAddNewProduct={() => handleTabChange('setelan')}
               theme={theme}
             />
           )}
@@ -436,7 +488,7 @@ export default function App() {
               removeFromCart={removeFromCart}
               clearCart={clearCart}
               onOrderCompleted={handleOrderCompleted}
-              onGoToKatalog={() => setActiveTab('katalog')}
+              onGoToKatalog={() => handleTabChange('katalog')}
               theme={theme}
             />
           )}
@@ -447,7 +499,7 @@ export default function App() {
               activeOrder={activeOrder}
               settings={settings}
               onSelectOrder={setActiveOrder}
-              onNewTransaction={() => setActiveTab('katalog')}
+              onNewTransaction={() => handleTabChange('katalog')}
               theme={theme}
             />
           )}
@@ -489,7 +541,7 @@ export default function App() {
               onToggleTheme={handleToggleTheme}
               isAdminAuthenticated={isAdminAuthenticated}
               setIsAdminAuthenticated={handleSetAdminAuth}
-              onGoBackToKatalog={() => setActiveTab('katalog')}
+              onGoBackToKatalog={() => handleTabChange('katalog')}
             />
           )}
           </Suspense>
@@ -498,10 +550,10 @@ export default function App() {
         <div className="print:hidden">
           <BottomNav
             activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          cartCount={totalCartCount}
-          theme={theme}
-        />
+            setActiveTab={handleTabChange}
+            cartCount={totalCartCount}
+            theme={theme}
+          />
         </div>
       </div>
     </div>

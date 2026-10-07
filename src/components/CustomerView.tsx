@@ -432,9 +432,9 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
       {/* Customer Detail Drawer / Modal */}
       {selectedCustomer && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 transition-opacity duration-150 animate-in fade-in">
           <div
-            className={`w-full max-w-md border rounded-2xl p-5 max-h-[85dvh] overflow-y-auto overscroll-contain no-scrollbar space-y-4 ${
+            className={`w-full max-w-md border rounded-2xl p-5 max-h-[85dvh] overflow-y-auto overscroll-contain no-scrollbar space-y-4 transition-all duration-150 animate-in fade-in zoom-in-95 ${
               isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-2xl'
             }`}
           >
@@ -637,10 +637,10 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
       {/* Add Customer Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 transition-opacity duration-150 animate-in fade-in">
           <form
             onSubmit={handleCreateCustomer}
-            className={`w-full max-w-md border rounded-2xl p-5 space-y-3 max-h-[85dvh] overflow-y-auto overscroll-contain no-scrollbar ${
+            className={`w-full max-w-md border rounded-2xl p-5 space-y-3 max-h-[85dvh] overflow-y-auto overscroll-contain no-scrollbar transition-all duration-150 animate-in fade-in zoom-in-95 ${
               isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-2xl'
             }`}
           >
@@ -731,9 +731,9 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
 
       {/* Konfirmasi hapus customer */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 transition-opacity duration-150 animate-in fade-in">
           <div
-            className={`w-full max-w-xs border rounded-2xl p-5 space-y-3 ${
+            className={`w-full max-w-xs border rounded-2xl p-5 space-y-3 transition-all duration-150 animate-in fade-in zoom-in-95 ${
               isDark ? 'bg-neutral-900 border-neutral-800' : 'bg-white border-neutral-200 shadow-2xl'
             }`}
           >

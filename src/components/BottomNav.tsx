@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActiveTab } from '../types';
-import { ShoppingBag, Receipt, Users, BarChart3, SlidersHorizontal } from 'lucide-react';
+import { ShoppingBag, Receipt, Users, BarChart3 } from 'lucide-react';
+import { preloadLazyChunk } from '../utils/preload';
 
 interface BottomNavProps {
   activeTab: ActiveTab;
@@ -11,6 +12,11 @@ interface BottomNavProps {
 
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, cartCount, theme = 'light' }) => {
   const isDark = theme === 'dark';
+
+  const handlePreload = (tabId: ActiveTab) => {
+    if (tabId === 'nota') preloadLazyChunk('nota');
+    else if (tabId === 'laporan') preloadLazyChunk('laporan');
+  };
 
   const tabs = [
     { id: 'katalog' as ActiveTab, label: 'Katalog', icon: ShoppingBag },
@@ -36,6 +42,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, c
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
+              onPointerEnter={() => handlePreload(tab.id)}
+              onTouchStart={() => handlePreload(tab.id)}
               className={`relative flex flex-col items-center justify-center py-1 transition-all duration-150 min-h-[48px] touch-manipulation select-none ${
                 isActive
                   ? isDark

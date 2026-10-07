@@ -1016,10 +1016,10 @@ const activeFilterCount = useMemo(() => {
 
       {/* Modal Edit Invoice (Admin) */}
       {isAdminAuthenticated && editingOrder && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 transition-opacity duration-150 animate-in fade-in">
           <form
             onSubmit={handleSaveEditOrder}
-            className={`w-full max-w-md border rounded-t-3xl sm:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto no-scrollbar ${
+            className={`w-full max-w-md border rounded-t-3xl sm:rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-y-auto no-scrollbar transition-all duration-150 animate-in fade-in zoom-in-95 ${
               isDark
                 ? 'bg-neutral-900 border-neutral-800'
                 : 'bg-white border-neutral-200 shadow-2xl'
@@ -1449,9 +1449,9 @@ const activeFilterCount = useMemo(() => {
 
       {/* Modal Konfirmasi Hapus Invoice */}
       {isAdminAuthenticated && confirmDeleteOrder && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 transition-opacity duration-150 animate-in fade-in">
           <div
-            className={`w-full max-w-sm border rounded-2xl p-5 space-y-4 ${
+            className={`w-full max-w-sm border rounded-2xl p-5 space-y-4 transition-all duration-150 animate-in fade-in zoom-in-95 ${
               isDark
                 ? 'bg-neutral-900 border-neutral-800'
                 : 'bg-white border-neutral-200 shadow-2xl'
